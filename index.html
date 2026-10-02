@@ -239,8 +239,8 @@ body.tv{ background:var(--shop-bg); }
 /* ============================================================
    PASTE YOUR SUPABASE DETAILS HERE (Supabase > Project Settings > API)
    ============================================================ */
-const SUPABASE_URL = "https://ciadgoclzkabiesienng.supabase.co";
-const SUPABASE_KEY = "sb_publishable_...your full key...";
+const SUPABASE_URL = "PASTE_PROJECT_URL_HERE";
+const SUPABASE_KEY = "PASTE_ANON_PUBLIC_KEY_HERE";
 /* ============================================================ */
 
 /* ---------- helpers ---------- */
@@ -428,7 +428,7 @@ function renderShell(){
     (r.tabs.length > 1 ? '<nav class="tabs" aria-label="Sections">' + r.tabs.map(t => '<button class="tab" data-action="tab" data-tab="' + t + '"' + (t === S.view ? ' aria-current="page"' : "") + '>' + TAB_LABEL[t] + '</button>').join("") + '</nav>' : "");
   let b = "";
   if (S.loaded && !S.live) b = "Setup needed: add your Supabase details to index.html. Until then, changes stay on this screen only.";
-  else if (S.loaded && S.online === false) b = "Can’t reach the board right now. Check the Wi-Fi. It will reconnect on its own.";
+  else if (S.loaded && S.online === false) b = "Can’t reach the board right now. Check the Wi-Fi. It will reconnect on its own." + (S.lastErr ? " (" + S.lastErr + ")" : "");
   $("#banner").innerHTML = b ? '<div class="banner">' + esc(b) + '</div>' : "";
 }
 function renderMain(){
@@ -938,7 +938,9 @@ render(true);
   if (!configured){ S.loaded = true; S.live = false; S.config = { stores: [{ id: "demo-1", name: "Demo store" }], products: null, logoId: null }; render(true); return; }
   db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
   S.live = true;
-  const refresh = () => loadAll().catch(() => { S.online = false; renderShell(); });
+  let lastSync = 0;
+  const refresh = () => loadAll().then(() => { lastSync = Date.now(); S.lastErr = ""; renderShell(); })
+    .catch(e => { S.online = false; S.lastErr = (e && (e.message || e.code)) || "unknown"; renderShell(); });
   try{ await loadAll(); }catch(e){ S.loaded = true; S.online = false; render(true); }
   db.channel("board")
     .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, p => {
@@ -952,9 +954,9 @@ render(true);
     .on("postgres_changes", { event: "*", schema: "public", table: "config" }, p => {
       if (p.new && p.new.data){ readCfg(p.new.data); render(S.view === "settings"); }
     })
-    .subscribe(status => { if (status === "SUBSCRIBED") refresh(); else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") { S.online = false; renderShell(); } });
-  // Safety net: re-sync every 2 minutes and whenever the screen wakes up
-  setInterval(refresh, 120000);
+    .subscribe(status => { if (status === "SUBSCRIBED"){ S.rt = true; refresh(); } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") S.rt = false; });
+  // Safety net: if live updates drop, check every 15 seconds; otherwise every 2 minutes. Also when the screen wakes up.
+  setInterval(() => { if (!S.rt || Date.now() - lastSync > 120000) refresh(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   window.addEventListener("online", refresh);
 })();
