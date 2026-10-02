@@ -552,7 +552,7 @@ function viewAdd(){
       '</div><input class="input hidden" type="datetime-local" name="dueCustom" aria-label="Ready by"></div>' +
     '<div class="field"><span>Flags</span><div class="toggle-row">' +
       '<label class="chip-opt"><input type="checkbox" name="waiting"><span>Customer is here waiting</span></label>' +
-      '<label class="chip-opt"><input type="checkbox" name="rush"><span>Rush</span></label></div></div>' +
+'</div></div>' +
     '<div class="field"><span>Protection products sold <span class="muted" style="font-weight:400">(finance can add these later)</span></span><div class="chips">' +
       products().map(p => '<label class="chip-opt"><input type="checkbox" name="prod" value="' + esc(p) + '"><span>' + esc(p) + '</span></label>').join("") + '</div></div>' +
     '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" placeholder="Anything the detailers should know"></textarea></label>' +
@@ -594,7 +594,7 @@ async function submitAdd(f){
   const job = {
     store, stock, year, make: g("make"), model: g("model"), color: g("color"),
     salesperson: g("salesperson"), customer: g("customer"), dueAt,
-    waiting: !!fd.get("waiting"), rush: !!fd.get("rush"),
+    waiting: !!fd.get("waiting"), rush: false,
     products: fd.getAll("prod").map(String), notes: g("notes"),
     status: "queued", createdAt: now, updatedAt: now, createdBy: by,
     log: [{ t: now, by, a: "Sent to shop" }]
@@ -751,7 +751,7 @@ function renderSheet(){
     '<label class="field"><span>Color</span><input class="input" name="color" value="' + esc(j.color) + '"></label>' +
     '<label class="field"><span>Salesperson</span><input class="input" name="salesperson" value="' + esc(j.salesperson) + '"></label>' +
     '<label class="field"><span>Ready by</span><input class="input" type="datetime-local" name="due" value="' + esc(dueLocal) + '"></label>' +
-    '<div class="toggle-row"><label class="chip-opt"><input type="checkbox" name="waiting"' + (j.waiting ? " checked" : "") + '><span>Customer waiting</span></label><label class="chip-opt"><input type="checkbox" name="rush"' + (j.rush ? " checked" : "") + '><span>Rush</span></label></div>' +
+    '<div class="toggle-row"><label class="chip-opt"><input type="checkbox" name="waiting"' + (j.waiting ? " checked" : "") + '><span>Customer waiting</span></label></div>' +
     '<label class="field"><span>Notes</span><textarea class="input" name="notes">' + esc(j.notes) + '</textarea></label>' +
     '<button class="btn primary" type="submit">Save changes</button></form></details>' : "";
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="del-job">' + (S.sheet.confirmDel ? "Tap again to remove for good" : "Remove from board") + '</button></div>' : "";
@@ -888,7 +888,7 @@ document.addEventListener("submit", async e => {
     if (!isNaN(due) && Math.abs(due - (j.dueAt || 0)) > MIN && due < Date.now() + HOUR - MIN){ toast("Ready time has to be at least 1 hour from now.", true); return; }
     try{
       await api.update(j.id, { stock: g("stock").toUpperCase(), year: g("year"), make: g("make"), model: g("model"), color: g("color"), salesperson: g("salesperson"),
-        dueAt: isNaN(due) ? j.dueAt : due, waiting: !!fd.get("waiting"), rush: !!fd.get("rush"), notes: g("notes"), log: addLog(j, "Details edited") });
+        dueAt: isNaN(due) ? j.dueAt : due, waiting: !!fd.get("waiting"), rush: false, notes: g("notes"), log: addLog(j, "Details edited") });
       toast("Changes saved");
     }catch(err){}
   }
