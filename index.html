@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Delivery Board">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚗</text></svg>">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="config.js?v=1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
@@ -239,8 +240,9 @@ body.tv{ background:var(--shop-bg); }
 /* ============================================================
    PASTE YOUR SUPABASE DETAILS HERE (Supabase > Project Settings > API)
    ============================================================ */
-const SUPABASE_URL = "https://ciadgoclzkabiesienng.supabase.co";
-const SUPABASE_KEY = "sb_publishable_-S4I3v79rGcS6XbD6UyhNg_9PpEc6rt";
+// Keys live in config.js so you can replace this file without re-pasting them.
+const SUPABASE_URL = (window.TS_CONFIG && window.TS_CONFIG.url) || "PASTE_PROJECT_URL_HERE";
+const SUPABASE_KEY = (window.TS_CONFIG && window.TS_CONFIG.key) || "PASTE_ANON_PUBLIC_KEY_HERE";
 /* ============================================================ */
 
 /* ---------- helpers ---------- */
@@ -544,9 +546,7 @@ function viewAdd(){
       '<input class="input" name="model" placeholder="Model" aria-label="Model"></div>' +
       '<datalist id="makes">' + MAKES.map(m => '<option value="' + m + '">').join("") + '</datalist></div>' +
     '<label class="field"><span>Color</span><input class="input" name="color" placeholder="e.g. Silver"></label>' +
-    '<div class="grid3" style="grid-template-columns:1fr 1fr">' +
-      '<label class="field"><span>Salesperson <em>*</em></span><input class="input" name="salesperson" value="' + esc(S.role === "sales" ? S.me : "") + '" autocomplete="name"></label>' +
-      '<label class="field"><span>Customer last name</span><input class="input" name="customer"></label></div>' +
+    '<label class="field"><span>Salesperson <em>*</em></span><input class="input" name="salesperson" value="' + esc(S.role === "sales" ? S.me : "") + '" autocomplete="name"></label>' +
     '<div class="field"><span>When does it need to be ready? <em>*</em></span><div class="chips">' +
       duePresets().map(([v, l]) => '<label class="chip-opt"><input type="radio" name="due" value="' + v + '"' + (v === "120" ? " checked" : "") + '><span>' + l + '</span></label>').join("") +
       '</div><input class="input hidden" type="datetime-local" name="dueCustom" aria-label="Ready by"></div>' +
