@@ -407,7 +407,10 @@ function logoHTML(onDark){
 }
 function render(force){
   renderShell();
-  if (force || !FORM_VIEWS.has(S.view) || !$("#main").dataset.view || $("#main").dataset.view !== S.view) renderMain();
+  const cur = $("#main").dataset.view || "";
+  // Always redraw after loading finishes; never wipe a form someone is typing in.
+  const typing = cur === "gate" || (FORM_VIEWS.has(S.view) && cur === S.view);
+  if (force || cur === "loading" || !cur || !typing) renderMain();
   if (S.sheet) renderSheet();
 }
 function renderShell(){
@@ -437,20 +440,22 @@ function renderMain(){
   const m = $("#main");
   m.dataset.view = S.view || "";
   if (!S.role) return m.innerHTML = viewRoles();
-  if (!S.loaded) return m.innerHTML = '<div class="empty"><h3>Loading the board…</h3></div>';
+  if (!S.loaded){ m.dataset.view = "loading"; return m.innerHTML = '<div class="empty"><h3>Loading the board…</h3></div>'; }
+  m.dataset.view = "gate";
   if (S.role !== "area" && !S.me && S.role !== "shop" && !S.skipName) return m.innerHTML = viewName();
   if (S.role === "area" && !unlocked()){
     if (S.config.masterPin) return m.innerHTML = viewCode();
     setUnlock("*");
   }
+  m.dataset.view = S.view || "";
   if (S.view === "settings"){ m.innerHTML = viewSettings(); return; }
   if (!stores().length) return m.innerHTML = viewNoStores();
   if (S.role === "area"){
     if (!S.store || (S.store !== "*" && !stores().some(s => s.id === S.store))){ S.store = "*"; LS.set("store", S.store); renderShell(); }
   } else if (!unlocked()){
-    if (codesOn()) return m.innerHTML = viewCode();
+    if (codesOn()){ m.dataset.view = "gate"; return m.innerHTML = viewCode(); }
     if (stores().length === 1){ S.store = stores()[0].id; LS.set("store", S.store); setUnlock(S.store); renderShell(); }
-    else return m.innerHTML = viewPickStore();
+    else { m.dataset.view = "gate"; return m.innerHTML = viewPickStore(); }
   }
   const v = { add:viewAdd, queue:viewQueue, board:viewBoard, stores:viewStores, settings:viewSettings }[S.view];
   m.innerHTML = v();
@@ -900,7 +905,8 @@ document.addEventListener("fullscreenchange", () => { if (!document.fullscreenEl
 setInterval(() => {
   const now = Date.now();
   for (const [id, exp] of S.newIds) if (exp < now) S.newIds.delete(id);
-  if (!FORM_VIEWS.has(S.view)) renderMain();
+  const cur = $("#main").dataset.view || "";
+  if (!FORM_VIEWS.has(S.view) && cur !== "gate") renderMain();
 }, 20000);
 
 /* ---------- boot ---------- */
