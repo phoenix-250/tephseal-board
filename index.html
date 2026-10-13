@@ -700,11 +700,12 @@ function logoHTML(onDark){
   if (onDark) return '<img src="' + LOGO_WHITE + '" alt="Teph Seal">';
   return '<img class="logo-navy" src="' + LOGO_NAVY + '" alt="Teph Seal"><img class="logo-white" src="' + LOGO_WHITE + '" alt="Teph Seal">';
 }
+function typingNow(){ const a = document.activeElement; return !!(a && a.closest && a.closest("#main") && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); }
 function render(force){
   renderShell();
   const cur = $("#main").dataset.view || "";
   // Always redraw after loading finishes; never wipe a form someone is typing in.
-  const typing = cur === "gate" || (FORM_VIEWS.has(S.view) && cur === S.view);
+  const typing = cur === "gate" || (FORM_VIEWS.has(S.view) && cur === S.view) || typingNow();
   if (force || cur === "loading" || !cur || !typing) renderMain();
   if (S.sheet) renderSheet();
 }
@@ -791,7 +792,9 @@ function tryCode(f){
 function newCode(used){ let c; do { c = String(Math.floor(1000 + Math.random() * 9000)); } while (used.includes(c)); return c; }
 function allCodes(){ return stores().flatMap(s => [s.code]).concat([S.config.masterPin]).filter(Boolean).map(String); }
 function viewRoles(){
-  return '<div class="narrow"><h2>Who’s using this device?</h2><p class="muted">Pick once. This device will remember it, and you can change it any time from the top right.</p><div class="role-grid">' +
+  return '<div class="narrow">' +
+    (S.me ? '<form class="panel form" data-form="rename" autocomplete="off" style="margin-bottom:20px"><label class="field" style="margin:0"><span>Your name on this device</span><input class="input" name="me" value="' + esc(S.me) + '" autocomplete="name" maxlength="60"></label><div class="row"><button class="btn primary" type="submit">Save name</button></div><div id="renameMsg"></div></form>' : "") +
+    '<h2>Who’s using this device?</h2><p class="muted">Pick once. This device will remember it, and you can change it any time from the top right.</p><div class="role-grid">' +
     Object.entries(ROLES).map(([k, r]) => '<button class="role-card" data-action="pick-role" data-role="' + k + '"><b>' + r.label + '</b><span>' + r.desc + '</span></button>').join("") + '</div>' +
     (S.lock ? '<div class="panel" style="margin-top:20px"><p style="margin:0 0 10px"><b>This device is locked to ' + esc(stores().some(s => s.id === S.lock) ? storeName(S.lock) : "its store") + '.</b> Only an area manager can move it to a different store.</p>' +
       (S.releasing ? '<form class="form" data-form="release" autocomplete="off"><input class="input" name="code" inputmode="numeric" maxlength="6" placeholder="Area manager PIN" aria-label="Area manager PIN" autofocus><div id="codeErr"></div><div class="row"><button class="btn primary" type="submit">Unlock store</button><button class="btn" type="button" data-action="release-cancel">Cancel</button></div></form>'
@@ -1171,6 +1174,11 @@ document.addEventListener("submit", async e => {
     return;
   }
   if (kind === "name"){ const v = f.me.value.trim(); if (!v) return; S.me = v; LS.set("me", v); render(true); return; }
+  if (kind === "rename"){
+    const v = f.me.value.trim().slice(0, 60);
+    if (!v){ $("#renameMsg").innerHTML = '<div class="err-msg" role="alert">Enter a name.</div>'; return; }
+    S.me = v; LS.set("me", v); f.me.blur(); toast("Name saved: " + v); render(true); return;
+  }
   if (kind === "add-store"){
     const name = f.label.value.trim(); if (!name) return;
     if (stores().some(s => s.name.toLowerCase() === name.toLowerCase())){ toast("That store is already on the list.", true); return; }
@@ -1203,7 +1211,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, exp] of S.newIds) if (exp < now) S.newIds.delete(id);
   const cur = $("#main").dataset.view || "";
-  if (!FORM_VIEWS.has(S.view) && cur !== "gate") renderMain();
+  if (!FORM_VIEWS.has(S.view) && cur !== "gate" && !typingNow()) renderMain();
 }, 20000);
 
 /* ---------- boot ---------- */
