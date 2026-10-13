@@ -292,7 +292,7 @@ const ROLES = {
 const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup" };
 const FORM_VIEWS = new Set(["add","settings"]);
 const perms = r => ({
-  status:  ["shop","sales","area"].includes(r),
+  status:  ["shop","area"].includes(r),   // detail steps: shop + area manager only
   deliver: ["sales","shop","area"].includes(r),
   products:["finance","sales","area"].includes(r),
   edit:    ["sales","area"].includes(r),
@@ -381,22 +381,54 @@ const DAY = 24 * HOUR;
 const REVIEW_ISSUES = ["Missed spots","Interior","Exterior","Not ready on time","Damage"];
 const R = { list: [], loaded: false, busy: false, flag: false, flagOk: false };
 function rvSafe(fn){ try{ return fn() || ""; }catch(e){ console.warn("Reviews:", e); return ""; } }
+// Switches (feature_flags table):
+//   'reviews'          master switch, the emergency "off everywhere" button
+//   'reviews:<storeId>' one per store
+// No per-store rows yet = every store follows the master (how it worked before this update).
+// A store added after per-store switches are in use starts OFF. Any read error = everything OFF.
+R.stores = {}; R.perStore = false; R.saving = false;
 function reviewsFlag(){ return R.flag === true; }
-function reviewsOn(store){ return R.flag === true; }
-// Fail-safe: any error reading the switch means OFF.
+function storeSwitch(id){ return R.perStore ? R.stores[id] === true : true; }
+// What you see in Setup is what's live: a store is on only if its switch AND the master are on.
+function storeLive(id){ return R.flag === true && storeSwitch(id); }
+function reviewsOn(store){
+  if (store === "*") return stores().some(s => storeLive(s.id));
+  return storeLive(store);
+}
 async function loadFlag(){
   try{
-    if (!db){ R.flagOk = true; return; }   // preview mode: switch lives in memory
-    const { data, error } = await db.from("feature_flags").select("enabled").eq("key", "reviews").maybeSingle();
+    if (!db){ R.flagOk = true; return; }   // preview mode: switches live in memory
+    const { data, error } = await db.from("feature_flags").select("key,enabled").like("key", "reviews%");
     if (error) throw error;
-    R.flag = !!(data && data.enabled); R.flagOk = true;
-  }catch(e){ R.flag = false; R.flagOk = false; }
+    const st = {}; let master = false, per = false;
+    for (const r of data){
+      if (r.key === "reviews") master = !!r.enabled;
+      else if (r.key.startsWith("reviews:")){ st[r.key.slice(8)] = !!r.enabled; per = true; }
+    }
+    R.flag = master; R.stores = st; R.perStore = per; R.flagOk = true;
+  }catch(e){ R.flag = false; R.stores = {}; R.perStore = false; R.flagOk = false; }
+}
+async function saveFlags(rows){
+  if (!db) return;
+  const now = new Date().toISOString();
+  const { error } = await db.from("feature_flags").upsert(rows.map(r => Object.assign({ updated_at: now }, r)));
+  if (error) throw error;
 }
 function reviewsSwitchPanel(){
-  return rvSafe(() => S.role !== "area" ? "" :
-    '<div class="panel"><h3 style="font-size:22px">Delivery reviews</h3><p class="muted">Salespeople rate each delivery and scores show on All stores. Turning this off puts the board back exactly how it was on every device within about 30 seconds. Ratings already saved are kept.</p>' +
-    (!R.flagOk ? '<div class="warn-box">The reviews switch isn’t set up yet (run the reviews SQL in Supabase). Reviews stay off until it is.</div>'
-      : '<div class="row"><span style="font-weight:700;font-size:18px">' + (R.flag ? "ON" : "OFF") + '</span><button class="btn' + (R.flag ? " danger" : " primary") + '" data-action="rv-toggle">' + (R.flag ? "Turn off" : "Turn on") + '</button></div>') + '</div>');
+  return rvSafe(() => {
+    if (S.role !== "area") return "";
+    let h = '<div class="panel"><h3 style="font-size:22px">Delivery reviews</h3><p class="muted">Turn reviews on or off for each store. Off means that store’s board works exactly like before. Changes reach every device within about 30 seconds. Ratings already saved are always kept.</p>';
+    if (!R.flagOk) return h + '<div class="warn-box">The reviews switches aren’t set up yet (run the reviews SQL in Supabase). Reviews stay off until they are.</div></div>';
+    const dis = R.saving ? " disabled" : "";
+    h += '<div class="set-list">' + stores().map(s => {
+      const on = storeLive(s.id);
+      return '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(s.name) + '</span>' +
+        '<span style="width:44px;font-weight:700;color:' + (on ? "var(--ok)" : "var(--muted)") + '">' + (on ? "ON" : "OFF") + '</span>' +
+        '<button class="btn' + (on ? "" : " primary") + '" style="width:110px" data-action="rv-store-toggle" data-id="' + esc(s.id) + '"' + dis + '>' + (on ? "Turn off" : "Turn on") + '</button></div>';
+    }).join("") + '</div>';
+    if (reviewsOn("*")) h += '<div class="row" style="margin-top:14px"><span class="spacer"></span><button class="btn danger" data-action="rv-toggle"' + dis + '>Emergency: turn off at every store</button></div>';
+    return h + '</div>';
+  });
 }
 const reviewFor = id => R.list.find(r => r.job_id === id);
 async function loadReviews(){
@@ -442,7 +474,7 @@ function totalScoreTile(){
 }
 // Salesperson: "Rate delivery" button on delivered rows
 function rateButton(j){
-  return rvSafe(() => (S.role === "sales" && S.canWrite && j.status === "delivered" && reviewsOn(j.store) && R.loaded && !reviewFor(j.id))
+  return rvSafe(() => (S.role === "sales" && S.canWrite && j.status === "delivered" && reviewsOn(j.store) && R.loaded && !reviewFor(j.id) && sameSalesperson(S.me, j.salesperson))
     ? '<button class="btn primary" data-action="open" data-id="' + esc(j.id) + '" data-focus="review">Rate delivery</button>' : "");
 }
 // Job sheet section
@@ -456,27 +488,118 @@ function reviewSection(j){
         (r.issues && r.issues.length ? '<div class="chips" style="margin-top:8px">' + r.issues.map(x => '<span class="pill">' + esc(x) + '</span>').join("") + '</div>' : "") +
         (r.comment ? '<p style="margin:8px 0 0">' + esc(r.comment) + '</p>' : "") + '</div>';
     }
-    if (S.role !== "sales" || !S.canWrite) return "";
+    if (S.role !== "sales" || !S.canWrite || !sameSalesperson(S.me, j.salesperson)) return "";
     if (r) return '<div class="sec" id="rvSec"><h3>Delivery rating</h3><p class="muted" style="margin:0">Rated ' + r.score + ' of 5. Thanks!</p></div>';
     const pick = (S.sheet && S.sheet.rv) || 0;
     return '<div class="sec" id="rvSec"><h3>How was this delivery?</h3>' +
       '<div class="seg stars" role="group" aria-label="Rating, 1 to 5 stars">' + [1,2,3,4,5].map(n => '<button type="button" data-action="rv-star" data-n="' + n + '" aria-pressed="' + (n === pick) + '" aria-label="' + n + ' star' + (n > 1 ? "s" : "") + '">' + n + ' ★</button>').join("") + '</div>' +
       '<p class="muted" style="margin:12px 0 6px">Anything off? (optional)</p><div class="chips" data-form="rv-issues">' + REVIEW_ISSUES.map(x => '<label class="chip-opt"><input type="checkbox" value="' + esc(x) + '"><span>' + esc(x) + '</span></label>').join("") + '</div>' +
       '<label class="field" style="margin-top:12px"><span>Comment (optional)</span><textarea class="input" id="rvComment" maxlength="500"></textarea></label>' +
-      '<div class="row" style="margin-top:12px"><button class="btn primary" data-action="rv-save">Submit rating</button></div><div id="rvErr"></div></div>';
+      '<div class="row" style="margin-top:12px"><button class="btn primary" data-action="rv-save">Submit rating</button><button class="btn" data-action="rv-skip">Skip / not mine</button></div><div id="rvErr"></div></div>';
   });
 }
+// Who is this delivery for? Forgiving name match: same first name (ignoring case,
+// punctuation, extra spaces). Last initial only used when both names have one.
+function nameParts(n){ return String(n || "").toLowerCase().replace(/[^a-z\s]/g, "").trim().split(/\s+/).filter(Boolean); }
+function sameSalesperson(a, b){
+  const x = nameParts(a), y = nameParts(b);
+  if (!x.length || !y.length || x[0] !== y[0]) return false;
+  if (x.length > 1 && y.length > 1 && x[x.length - 1][0] !== y[y.length - 1][0]) return false;
+  return true;
+}
+// Don't interrupt someone halfway through adding a unit.
+function addFormInUse(){
+  if (S.view !== "add" || S.addDone) return false;
+  const f = document.querySelector('[data-form="add"]'); if (!f) return false;
+  return ["stock","year","make","model","color","notes"].some(k => f[k] && String(f[k].value || "").trim()) || !!f.querySelector('input[name="prod"]:checked');
+}
+const rvPopped = new Set();   // popped once per visit; unrated ones come back next visit
+const rvSkipped = () => LS.get("rvSkip", []);
+function isMyDelivery(j){
+  return S.role === "sales" && j.status === "delivered" && (Date.now() - (j.deliveredAt || 0)) < 48 * HOUR && sameSalesperson(S.me, j.salesperson);
+}
+function myPendingRatings(){
+  const skip = rvSkipped();
+  return S.jobs.filter(j => isMyDelivery(j) && reviewsOn(j.store) && !reviewFor(j.id) && !skip.includes(j.id)).sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0));
+}
+// Pop the rating up on the salesperson's own phone/desktop, whoever marked it Delivered.
+setInterval(() => { rvSafe(() => {
+  if (!reviewsFlag() || !R.loaded || S.role !== "sales" || !S.canWrite || S.sheet || document.hidden || !unlocked() || addFormInUse()) return;
+  const j = myPendingRatings().find(x => !rvPopped.has(x.id)); if (!j) return;
+  rvPopped.add(j.id); openSheet(j.id, "review");
+}); }, 5000);
 // After a salesperson marks Delivered, bring up the rating prompt
 function promptReview(id){
   try{
     const j = S.jobs.find(x => x.id === id);
-    if (!j || S.role !== "sales" || !reviewsOn(j.store) || !R.loaded || reviewFor(id)) return;
+    if (!j || !isMyDelivery(j) || !reviewsOn(j.store) || !R.loaded || reviewFor(id) || rvSkipped().includes(id)) return;
+    rvPopped.add(id);
     if (S.sheet && S.sheet.id === id){ S.sheet.focus = "review"; S.sheet.focused = false; S.sheet.rendered = false; renderSheet(); }
     else openSheet(id, "review");
   }catch(e){ console.warn("Reviews:", e); }
 }
 document.addEventListener("click", async e => {
-  const t = e.target.closest('[data-action="rv-star"],[data-action="rv-save"],[data-action="rv-toggle"]'); if (!t) return;
+  const t = e.target.closest('[data-action="rv-star"],[data-action="rv-save"],[data-action="rv-toggle"],[data-action="rv-store-toggle"],[data-action="rv-skip"]'); if (!t) return;
+  if (t.dataset.action === "rv-skip"){
+    if (S.sheet){ LS.set("rvSkip", rvSkipped().concat([S.sheet.id]).slice(-300)); closeSheet(); toast("Skipped"); render(true); }
+    return;
+  }
+  if (t.dataset.action === "rv-toggle" || t.dataset.action === "rv-store-toggle"){
+    if (S.role !== "area" || R.saving) return;
+    R.saving = true; t.disabled = true;
+    try{
+      let rows, msg;
+      if (t.dataset.action === "rv-toggle"){   // emergency: everything off
+        rows = [{ key: "reviews", enabled: false }].concat(stores().map(s => ({ key: "reviews:" + s.id, enabled: false })));
+        msg = "Reviews turned off at every store";
+      } else {
+        const id = t.dataset.id, next = !storeLive(id);
+        // Write every store exactly as it shows now, then change just this one.
+        rows = stores().map(s => ({ key: "reviews:" + s.id, enabled: s.id === id ? next : storeLive(s.id) }));
+        if (next) rows.push({ key: "reviews", enabled: true });
+        msg = "Reviews " + (next ? "on" : "off") + " at " + storeName(id);
+      }
+      await saveFlags(rows);   // one save: all of it happens or none of it does
+      rows.forEach(r => { if (r.key === "reviews") R.flag = r.enabled; else R.stores[r.key.slice(8)] = r.enabled; });
+      R.perStore = true;
+      if (R.flag) await loadReviews();
+      toast(msg);
+    }catch(err){ console.warn("Reviews:", err); toast("Couldn't change the switch. Nothing was changed. Try again.", true); }
+    R.saving = false; render(true); return;
+  }
+  if (t.dataset.action === "rv-skip"){
+    if (S.sheet){ LS.set("rvSkip", rvSkipped().concat([S.sheet.id]).slice(-300)); closeSheet(); toast("Skipped"); render(true); }
+    return;
+  }
+  if (t.dataset.action === "rv-toggle" || t.dataset.action === "rv-store-toggle"){
+    if (S.role !== "area" || R.saving) return;
+    R.saving = true; t.disabled = true;
+    try{
+      if (t.dataset.action === "rv-toggle"){
+        const next = !R.flag;
+        await saveFlags([{ key: "reviews", enabled: next }]);
+        R.flag = next;
+        toast(next ? "Reviews resumed" : "Reviews turned off at every store");
+      } else {
+        const id = t.dataset.id, next = !storeSwitch(id);
+        // First per-store change: write every store's current state so nothing else changes.
+        const rows = R.perStore ? [] : stores().map(s => ({ key: "reviews:" + s.id, enabled: storeSwitch(s.id) }));
+        rows.push({ key: "reviews:" + id, enabled: next });
+        // Turning a store on while the system is off also resumes the system for that store.
+        if (next && !R.flag) rows.push({ key: "reviews", enabled: true });
+        await saveFlags(rows);
+        rows.forEach(r => { if (r.key === "reviews") R.flag = r.enabled; else R.stores[r.key.slice(8)] = r.enabled; });
+        R.perStore = true;
+        toast("Reviews " + (next ? "on" : "off") + " at " + storeName(id));
+      }
+      if (R.flag) await loadReviews();
+    }catch(err){ console.warn("Reviews:", err); toast("Couldn't change the switch. Nothing was changed. Try again.", true); }
+    R.saving = false; render(true); return;
+  }
+  if (t.dataset.action === "rv-skip"){
+    if (S.sheet){ LS.set("rvSkip", rvSkipped().concat([S.sheet.id]).slice(-300)); closeSheet(); toast("Skipped"); render(true); }
+    return;
+  }
   if (t.dataset.action === "rv-toggle"){
     if (S.role !== "area") return;
     const next = !R.flag; t.disabled = true;
