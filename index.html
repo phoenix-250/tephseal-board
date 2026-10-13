@@ -1059,6 +1059,17 @@ function renderSheet(){
     '<label class="field"><span>Notes</span><textarea class="input" name="notes">' + esc(j.notes) + '</textarea></label>' +
     '<button class="btn primary" type="submit">Save changes</button></form></details>' : "";
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="del-job">' + (S.sheet.confirmDel ? "Tap again to remove for good" : "Remove from board") + '</button></div>' : "";
+  // Survey mode: only the rating, nothing else (no products, status, edit or remove).
+  if (S.sheet.focus === "review"){
+    const rv = reviewSection(j);
+    if (rv.indexOf('data-action="rv-save"') >= 0){
+      root.innerHTML = '<div class="backdrop" data-action="close-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">' +
+        '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">#' + esc(j.stock) + '  ·  ' + esc(storeName(j.store)) + '</div><h2 id="sheetTitle">' + esc(vehicle(j)) + '</h2>' +
+        '<div class="muted" style="margin-top:4px">Delivered ' + esc(fmtTime(j.deliveredAt)) + '</div></div><button class="x" data-action="close" aria-label="Close">×</button></div>' +
+        rv.replace('<div class="sec" id="rvSec">', '<div class="sec" id="rvSec" style="border-top:0;margin-top:8px">') + '</div></div>';
+      return;
+    }
+  }
   root.innerHTML = '<div class="backdrop" data-action="close-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">' +
     '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">#' + esc(j.stock) + '  ·  ' + esc(storeName(j.store)) + '</div><h2 id="sheetTitle">' + esc(vehicle(j)) + '</h2><div class="row" style="margin-top:6px"><span class="pill ' + j.status + '">' + STATUS[j.status] + '</span>' + (j.color ? '<span class="muted">' + esc(j.color) + '</span>' : "") + (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div></div><button class="x" data-action="close" aria-label="Close">×</button></div>' +
     '<div class="sec"><dl class="times"><div><dt>Salesperson</dt><dd>' + esc(j.salesperson || "—") + '</dd></div>' + (j.customer ? '<div><dt>Customer</dt><dd>' + esc(j.customer) + '</dd></div>' : "") +
