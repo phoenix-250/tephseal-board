@@ -242,6 +242,9 @@ body.tv{ background:var(--shop-bg); }
 .u-veh{ font-family:var(--cond); font-weight:700; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .u-dim{ color:var(--shop-muted); font-weight:500; }
 .u-time{ font-family:var(--cond); font-weight:600; color:var(--shop-muted); flex:none; }
+.u-item.u-bad{ border-left-color:var(--shop-bad); box-shadow:inset 0 0 0 2px var(--shop-bad); }
+.u-t-ok{ color:var(--shop-ok); } .u-t-warn{ color:var(--shop-warn); } .u-t-bad{ color:var(--shop-bad); font-weight:700; }
+.u-c-ok{ color:var(--ok); } .u-c-warn{ color:var(--warn); } .u-c-bad{ color:var(--bad); }
 .u-more,.u-none{ color:var(--shop-muted); font-size:clamp(14px,1vw,18px); padding:2px 4px; }
 body.tv .board.has-used{ height:100vh; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
 body.tv .board.has-used .board-main{ flex:1 1 0; min-height:0; overflow:hidden; }
@@ -694,10 +697,12 @@ document.addEventListener("click", async e => {
    ============================================================ */
 const USED_STAGES = { detail:"In detail", progress:"In progress", done:"Detail & photos done" };
 const USED_PILL = { detail:"queued", progress:"working", done:"delivered" };
-const USED_BAR = { detail:"", progress:"warn", done:"ok" };
+const USED_GOAL = 24 * HOUR, USED_MAX = 48 * HOUR;   // timer: 24h expected, 48h absolute max
+const USED_SET = "_settings";                           // detailer lists live in used_units under this store id
+const BARCODE_LIB = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
 const USED_NEXT = { detail:{ to:"progress", label:"Start" }, progress:{ to:"done", label:"Detail & photos done" } };
 const USED_KEEP = 30 * DAY;
-const U = { list: [], loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
+const U = { list: [], detailers: {}, loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
 const memUsed = new Map();
 function uSafe(fn, d){ try{ const v = fn(); return v == null ? d : v; }catch(e){ console.warn("Used cars:", e); return d; } }
 function usedOn(store){
@@ -711,7 +716,19 @@ function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() ? t.concat(
 const usedKeep = u => u.stage !== "done" || (u.doneAt || 0) > Date.now() - USED_KEEP;
 const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store === id) && usedKeep(u));
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
-const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN …" + u.vin.slice(-8) : "");
+const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN " + u.vin.slice(-8) : "");
+// Timer runs from when the car is added until Detail & photos done. Green under 24h, yellow 24–48h, red past 48h.
+function usedClock(u, now){
+  const end = u.stage === "done" ? (u.doneAt || now) : now, age = Math.max(0, end - (u.createdAt || end));
+  const lvl = age < USED_GOAL ? "ok" : age < USED_MAX ? "warn" : "bad";
+  let txt;
+  if (u.stage === "done") txt = "took " + fmtDur(age);
+  else if (age < USED_GOAL) txt = fmtDur(USED_GOAL - age) + " left";
+  else if (age < USED_MAX) txt = fmtDur(USED_MAX - age) + " to 48h";
+  else txt = fmtDur(age - USED_MAX) + " past 48h";
+  return { lvl, txt, age };
+}
+const usedDetailers = store => (U.detailers[store] || []).slice().sort((a, b) => a.localeCompare(b));
 function usedLog(u, a){ return (u.log || []).concat([{ t: Date.now(), by: S.me || ROLES[S.role].label, a }]).slice(-30); }
 
 /* --- data --- */
@@ -728,10 +745,13 @@ async function usedLoadFlags(){
   }
 }
 async function usedLoad(){
-  if (!db){ U.list = [...memUsed.values()].map(u => Object.assign({}, u)); U.loaded = true; return; }
+  if (!db){ U.list = [...memUsed.values()].map(u => Object.assign({}, u)); U.loaded = true; return; }   // preview: detailers stay in U.detailers
   const { data, error } = await db.from("used_units").select("id,store,data").order("created_at", { ascending: false }).limit(1500);
   if (error) throw error;
-  U.list = data.map(r => Object.assign({}, r.data, { id: r.id, store: r.store }));
+  const det = {};
+  U.list = data.filter(r => { if (r.store !== USED_SET) return true; if (r.id.startsWith("detailers:")) det[r.id.slice(10)] = (r.data && r.data.names) || []; return false; })
+    .map(r => Object.assign({}, r.data, { id: r.id, store: r.store }));
+  U.detailers = det;
   U.loaded = true;
   usedPurge();
 }
@@ -767,7 +787,12 @@ const usedApi = {
     U.list = U.list.filter(x => x.id !== u.id);
   }
 };
-function usedSig(){ return JSON.stringify(U.flags) + "|" + U.flagOk + "|" + U.loaded + "|" + U.list.map(u => u.id + ":" + (u.updatedAt || 0)).join(","); }
+async function usedSaveDetailers(store, names){
+  names = [...new Set(names.map(n => n.trim()).filter(Boolean))].slice(0, 50);
+  if (db){ const { error } = await db.from("used_units").upsert({ id: "detailers:" + store, store: USED_SET, data: { names }, updated_at: new Date().toISOString() }); if (error) throw error; }
+  U.detailers[store] = names;
+}
+function usedSig(){ return JSON.stringify(U.detailers) + JSON.stringify(U.flags) + "|" + U.flagOk + "|" + U.loaded + "|" + U.list.map(u => u.id + ":" + (u.updatedAt || 0)).join(","); }
 function usedRedraw(){
   const on = usedOn("*"), sig = usedSig();
   // While OFF and unchanged, never redraw: the board behaves exactly as before.
@@ -811,15 +836,15 @@ function usedStrip(store){
     const now = Date.now(), all = usedFor(store);
     const cap = S.tv ? Math.max(1, Math.floor((window.innerHeight * 0.25 - 60) / Math.max(34, window.innerHeight * 0.042))) : 6;
     const cols = [
-      ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0))],
-      ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0))],
+      ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
+      ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["done", "Done today", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
     ];
-    const item = (u, k) => '<button class="u-item' + (USED_BAR[k] ? " u-" + USED_BAR[k] : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
+    const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
       '<span class="u-stock">' + esc(usedId(u)) + '</span>' +
-      '<span class="u-veh">' + esc(usedVeh(u)) + (u.color ? ' <span class="u-dim">' + esc(u.color) + '</span>' : "") + '</span>' +
+      '<span class="u-veh">' + esc(usedVeh(u)) + (u.detailer ? ' <span class="u-dim">· ' + esc(u.detailer) + '</span>' : "") + '</span>' +
       (store === "*" ? '<span class="store-tag">' + esc(storeName(u.store)) + '</span>' : "") +
-      '<span class="u-time">' + esc(k === "done" ? fmtTime(u.doneAt) : fmtDur(now - (u.stageAt || u.createdAt || now))) + '</span></button>';
+      '<span class="u-time u-t-' + c.lvl + '">' + esc(c.txt) + '</span></button>'; };
     return '<div class="used-strip" aria-label="Used cars">' + cols.map(([k, l, list]) =>
       '<div class="u-col"><div class="u-head"><h3>Used · <b>' + l + '</b></h3><span class="count">' + list.length + '</span></div>' +
       (list.length ? list.slice(0, cap).map(u => item(u, k)).join("") + (list.length > cap ? '<div class="u-more">+' + (list.length - cap) + ' more</div>' : "") : '<div class="u-none">None right now.</div>') + '</div>'
@@ -833,23 +858,29 @@ function viewUsed(){
     if (!usedTab()) return '<div class="empty"><h3>Used cars are off for this store</h3></div>';
     if (!U.loaded) return '<div class="empty"><h3>Loading used cars…</h3></div>';
     const now = Date.now(), all = usedFor(S.store), p = usedPerm(S.role);
-    const open = all.filter(u => u.stage !== "done").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0));
+    const open = all.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     const done = all.filter(u => u.stage === "done").sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
     const list = U.filter === "done" ? done : open;
     const title = S.store === "*" ? "All stores" : storeName(S.store);
     const rows = list.map(u => {
       const nx = USED_NEXT[u.stage];
       const act = (nx && p.move && S.canWrite) ? '<button class="btn primary" data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + nx.to + '">' + nx.label + '</button>' : "";
-      return '<div class="job-row' + (USED_BAR[u.stage] ? " u-" + USED_BAR[u.stage] : "") + '"><div class="bar"></div>' +
+      const c = usedClock(u, now);
+      return '<div class="job-row u-' + (c.lvl === "bad" ? "bad" : c.lvl) + '"><div class="bar"></div>' +
         '<button class="job-main" data-action="u-open" data-id="' + esc(u.id) + '"><div class="job-title">' + esc(usedVeh(u)) + (u.color ? ' <span class="muted" style="font-weight:500">' + esc(u.color) + '</span>' : "") + '</div>' +
-        '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN …' + esc(u.vin.slice(-8)) + '</span>' : "") +
+        '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN ' + esc(u.vin.slice(-8)) + '</span>' : "") +
         (S.store === "*" ? '<span>' + esc(storeName(u.store)) + '</span>' : "") +
-        (u.stage === "done" ? '<span>Done ' + esc(fmtTime(u.doneAt)) + '</span>' : '<span>' + esc(USED_STAGES[u.stage]) + ' for <b>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</b></span>') +
+        (u.stage === "done" ? '<span>Done ' + esc(fmtTime(u.doneAt)) + '</span>' : "") +
+        '<span><b class="u-c-' + c.lvl + '">' + esc(c.txt) + '</b></span>' +
+        '<span>' + (u.detailer ? 'Detailer <b>' + esc(u.detailer) + '</b>' : '<span class="muted">No detailer</span>') + '</span>' +
         '<span>Added by ' + esc(u.addedBy || "—") + '</span>' +
         '<span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></div></button>' +
         '<div class="job-act">' + act + '</div></div>';
     }).join("");
-    return '<div class="row"><h2>Used cars · ' + esc(title) + '</h2><span class="spacer"></span>' + (p.add && S.canWrite ? '<button class="btn primary" data-action="u-new">+ Add used car</button>' : "") + '</div>' +
+    return '<div class="row"><h2>Used cars · ' + esc(title) + '</h2><span class="spacer"></span>' +
+      (p.move && S.canWrite && S.store !== "*" ? '<button class="btn" data-action="u-team">Detailers (' + usedDetailers(S.store).length + ')</button>' : "") +
+      (p.add && S.canWrite ? '<button class="btn primary" data-action="u-new">+ Add used car</button>' : "") + '</div>' +
+      '<p class="muted" style="margin:6px 0 0">Timer starts when a car is added: 24 hours expected, 48 hours max.</p>' +
       '<div class="filters" role="group" aria-label="Filter">' +
         '<button class="filter" data-action="u-filter" data-f="open" aria-pressed="' + (U.filter !== "done") + '">In the shop (' + open.length + ')</button>' +
         '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Done, last 30 days (' + done.length + ')</button></div>' +
@@ -862,7 +893,9 @@ function usedTileLine(id){
   return uSafe(() => {
     if (!usedOn(id) || !U.loaded) return "";
     const l = usedFor(id);
-    return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> done today</div>';
+    const now = Date.now(), over = l.filter(u => u.stage !== "done" && usedClock(u, now).lvl !== "ok").length;
+    return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> done today' +
+      (over ? ', <span class="bad">' + over + ' over 24h</span>' : "") + '</div>';
   }, "");
 }
 
@@ -884,7 +917,7 @@ function usedSwitchPanel(){
 
 /* --- pop-up (its own layer, separate from the delivery sheet) --- */
 function usedRoot(){ let r = document.getElementById("usedRoot"); if (!r){ r = document.createElement("div"); r.id = "usedRoot"; document.body.appendChild(r); } return r; }
-function usedClose(){ U.modal = null; usedRoot().innerHTML = ""; }
+function usedClose(){ const back = U.modal && U.modal.kind === "team" && U.modal.back; U.modal = back ? { kind: "view", id: back } : null; if (back){ usedModal(); return; } usedRoot().innerHTML = ""; }
 function usedModal(){
   const root = usedRoot();
   if (!U.modal){ root.innerHTML = ""; return; }
@@ -897,32 +930,124 @@ function usedModal(){
       : '<input type="hidden" name="store" value="' + esc(S.store !== "*" ? S.store : ((st.find(s => usedOn(s.id)) || {}).id || "")) + '">';
     root.innerHTML = wrap("Add used car", "Goes on the shop board under In detail", '<form class="form" data-form="u-add" novalidate autocomplete="off" style="margin-top:14px">' + storeField +
       '<label class="field"><span>Stock number <em>*</em></span><input class="input" name="stock" autocapitalize="characters" placeholder="e.g. U24519"></label>' +
-      '<label class="field"><span>VIN <span class="muted" style="font-weight:400">(optional)</span></span><input class="input" name="vin" autocapitalize="characters" maxlength="17" placeholder="17 characters"></label>' +
+      '<div class="field"><span>VIN, last 8 <span class="muted" style="font-weight:400">(optional)</span></span><div class="row" style="flex-wrap:nowrap"><input class="input" name="vin" autocapitalize="characters" maxlength="17" placeholder="Last 8, or scan" style="flex:1">' +
+        '<button class="btn" type="button" data-action="u-scan" style="flex:none;min-height:50px">📷 Scan VIN</button></div>' +
+        '<input type="file" accept="image/*" capture="environment" id="uScanFile" class="hidden"><div id="uScanMsg" class="muted" style="font-size:14px">Take a photo of the VIN barcode on the driver door jamb. Fills in the VIN, year, make and model.</div></div>' +
       '<div class="field"><span>Vehicle</span><div class="grid3"><input class="input" name="year" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year"><input class="input" name="make" list="makes" placeholder="Make" aria-label="Make"><input class="input" name="model" placeholder="Model" aria-label="Model"></div>' +
         '<datalist id="makes">' + MAKES.map(m => '<option value="' + m + '">').join("") + '</datalist></div>' +
       '<label class="field"><span>Color</span><input class="input" name="color" placeholder="e.g. Silver"></label>' +
+      (usedPerm(S.role).move ? '<label class="field"><span>Detailer</span>' + usedDetailerSelect(S.store !== "*" ? S.store : "", "", 'name="detailer"') + '</label>' : "") +
       '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" placeholder="Anything the detailers should know"></textarea></label>' +
       '<div id="uErr"></div><button class="btn primary big" type="submit" id="uSubmit">Add to used cars</button></form>');
     setTimeout(() => root.querySelector('[name="stock"]')?.focus(), 30);
     return;
   }
+  if (U.modal.kind === "team"){
+    const store = U.modal.store, names = usedDetailers(store);
+    root.innerHTML = wrap("Detailers", esc(storeName(store)),
+      '<p class="muted">Who you can assign used cars to. Removing someone doesn’t change cars already assigned to them.</p>' +
+      '<div class="set-list">' + (names.length ? names.map(n => '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(n) + '</span><button class="btn danger" data-action="u-team-del" data-n="' + esc(n) + '">Remove</button></div>').join("") : '<p class="muted">No detailers yet. Add the first one below.</p>') + '</div>' +
+      '<form class="set-item" data-form="u-team-add" autocomplete="off"><input class="input" name="label" placeholder="Detailer name" maxlength="40" required><button class="btn primary" type="submit">Add</button></form>');
+    setTimeout(() => root.querySelector('[name="label"]')?.focus(), 30);
+    return;
+  }
   const u = U.list.find(x => x.id === U.modal.id);
   if (!u){ usedClose(); return; }
+  const clk = usedClock(u, Date.now());
   const p = usedPerm(S.role), now = Date.now(), w = S.canWrite;
   const stageSec = (p.move && w) ? '<div class="sec"><h3>Stage</h3><div class="seg" style="grid-template-columns:repeat(3,1fr)">' + Object.keys(USED_STAGES).map(k => '<button data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + k + '" aria-pressed="' + (u.stage === k) + '">' + USED_STAGES[k] + '</button>').join("") + '</div></div>' : "";
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="u-del" data-id="' + esc(u.id) + '">' + (U.modal.confirmDel ? "Tap again to remove for good" : "Remove from used cars") + '</button></div>' : "";
   root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
     '<div class="row" style="margin-top:6px"><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span>' + (u.color ? '<span class="muted">' + esc(u.color) + '</span>' : "") + '</div>' +
-    '<div class="sec"><dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
+    '<div class="sec"><p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Finished in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>' +
+      '<dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
+      '<div><dt>Detailer</dt><dd>' + esc(u.detailer || "Not assigned") + '</dd></div>' +
       '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
       (u.stage !== "done" ? '<div><dt>In this stage</dt><dd>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</dd></div>' : "") +
       (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div><div><dt>Total time</dt><dd>' + esc(fmtDur(u.doneAt - u.createdAt)) + '</dd></div>' : "") + '</dl>' +
       (u.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(u.notes) + '</p>' : "") + '</div>' +
+    ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
+      (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div></div>' : "") +
     stageSec +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec);
   setTimeout(() => root.querySelector(".x")?.focus(), 30);
 }
+function usedDetailerSelect(store, cur, attrs){
+  const names = store ? usedDetailers(store) : [];
+  const opts = names.concat(cur && !names.includes(cur) ? [cur] : []);
+  return '<select class="input" ' + attrs + '><option value="">' + (names.length ? "Not assigned" : "No detailers yet. Add them under Detailers") + '</option>' +
+    opts.map(n => '<option' + (n === cur ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>';
+}
+/* --- VIN photo: read the door-jamb barcode, then look up year/make/model (NHTSA, free) --- */
+let barcodeLib = null;
+function loadBarcodeLib(){
+  if (window.ZXing) return Promise.resolve(window.ZXing);
+  if (!barcodeLib) barcodeLib = new Promise((ok, bad) => { const sc = document.createElement("script"); sc.src = BARCODE_LIB; sc.onload = () => window.ZXing ? ok(window.ZXing) : bad(new Error("no lib")); sc.onerror = () => { barcodeLib = null; bad(new Error("load")); }; document.head.appendChild(sc); });
+  return barcodeLib;
+}
+function cleanVin(t){
+  let v = String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (v.length === 18 && /^[IA]/.test(v)) v = v.slice(1);   // some VIN barcodes start with an extra I
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(v) ? v : null;
+}
+async function readVinPhoto(file){
+  const Z = await loadBarcodeLib();
+  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
+  const hints = new Map();
+  hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.CODE_39, Z.BarcodeFormat.CODE_128, Z.BarcodeFormat.DATA_MATRIX, Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]);
+  hints.set(Z.DecodeHintType.TRY_HARDER, true);
+  const reader = new Z.MultiFormatReader(); reader.setHints(hints);
+  for (const size of [1600, 2400, 1000]){
+    for (const rot of [0, 90]){
+      const sc = Math.min(1, size / Math.max(img.width, img.height)), w = Math.round(img.width * sc), h = Math.round(img.height * sc);
+      const cv = document.createElement("canvas"), cx = cv.getContext("2d");
+      cv.width = rot ? h : w; cv.height = rot ? w : h;
+      if (rot){ cx.translate(cv.width, 0); cx.rotate(Math.PI / 2); }
+      cx.drawImage(img, 0, 0, w, h);
+      try{
+        const r = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv))));
+        const v = cleanVin(r.getText()); if (v) return v;
+      }catch(e){}
+    }
+  }
+  return null;
+}
+async function lookupVin(vin){
+  try{
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch("https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/" + vin + "?format=json", { signal: ctl.signal });
+    const d = ((await r.json()).Results || [])[0] || {};
+    const cap = s => String(s || "").toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+    return { year: d.ModelYear || "", make: cap(d.Make), model: d.Model || "" };
+  }catch(e){ return null; }
+}
+document.addEventListener("change", async e => {
+  const f = e.target; if (f.id !== "uScanFile" || !f.files || !f.files[0]) return;
+  const form = f.closest("form"), msg = $("#uScanMsg"), file = f.files[0]; f.value = "";
+  try{
+    msg.textContent = "Reading the barcode…";
+    const vin = await readVinPhoto(file);
+    if (!form.isConnected) return;
+    if (!vin){ msg.innerHTML = '<span class="err-msg">Couldn’t find a VIN barcode in that photo. Try closer and straight on, or type the last 8.</span>'; return; }
+    form.vin.value = vin; msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
+    const d = await lookupVin(vin);
+    if (!form.isConnected) return;
+    if (d && (d.make || d.model)){
+      ["year","make","model"].forEach(k => { if (!form[k].value.trim() && d[k]) form[k].value = d[k]; });
+      msg.textContent = "Filled in from VIN " + vin + ". Check it, then add the stock number.";
+    } else msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model.";
+  }catch(err){ console.warn("Used cars scan:", err); if (form.isConnected) msg.innerHTML = '<span class="err-msg">Couldn’t read the photo. Type the last 8 of the VIN instead.</span>'; }
+});
+document.addEventListener("change", async e => {
+  const t = e.target; if (!t.dataset || t.dataset.action !== "u-assign") return;
+  const u = U.list.find(x => x.id === t.dataset.id); if (!u || !usedPerm(S.role).move || U.busy) return;
+  const name = t.value || null; if ((u.detailer || null) === name) return;
+  U.busy = true;
+  try{ await usedApi.update(u, { detailer: name, log: usedLog(u, name ? "Assigned to " + name : "Detailer removed") }); toast(name ? usedVeh(u) + " assigned to " + name : "Detailer removed"); render(true); }
+  catch(err){ toast("That didn't save. Check your connection and try again.", true); }
+  U.busy = false; if (U.modal) usedModal();
+});
 async function usedSetStage(u, to){
   if (!u || u.stage === to || !USED_STAGES[to] || !usedPerm(S.role).move || U.busy) return;
   const now = Date.now(), patch = { stage: to, stageAt: now, log: usedLog(u, "Moved to " + USED_STAGES[to]) };
@@ -942,6 +1067,15 @@ document.addEventListener("click", async e => {
     if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
     if (a === "u-open"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-filter"){ U.filter = t.dataset.f; render(true); return; }
+    if (a === "u-scan"){ $("#uScanFile")?.click(); loadBarcodeLib().catch(() => {}); return; }
+    if (a === "u-team"){ if (!usedPerm(S.role).move) return; const st = t.dataset.store || S.store; if (!st || st === "*") return; U.modal = { kind: "team", store: st, back: U.modal && U.modal.kind === "view" ? U.modal.id : null }; usedModal(); return; }
+    if (a === "u-team-del"){
+      if (!U.modal || U.modal.kind !== "team" || U.busy) return;
+      U.busy = true;
+      try{ await usedSaveDetailers(U.modal.store, usedDetailers(U.modal.store).filter(n => n !== t.dataset.n)); toast("Removed " + t.dataset.n); }
+      catch(err){ toast("That didn't save. Check your connection and try again.", true); }
+      U.busy = false; usedModal(); render(true); return;
+    }
     if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (U.modal && U.modal.kind === "view") usedModal(); render(true); return; }
     if (a === "u-del"){
       const u = find(); if (!u || !usedPerm(S.role).del) return;
@@ -972,15 +1106,25 @@ document.addEventListener("click", async e => {
   }catch(err){ console.warn("Used cars:", err); }
 });
 document.addEventListener("submit", async e => {
-  const f = e.target; if (!f.dataset || f.dataset.form !== "u-add") return;
+  const f = e.target; if (!f.dataset || (f.dataset.form !== "u-add" && f.dataset.form !== "u-team-add")) return;
   e.preventDefault();
+  if (f.dataset.form === "u-team-add"){
+    try{
+      const name = f.label.value.trim().slice(0, 40), st = U.modal && U.modal.store;
+      if (!name || !st || U.busy) return;
+      if (usedDetailers(st).some(n => n.toLowerCase() === name.toLowerCase())){ toast("That name is already on the list.", true); return; }
+      U.busy = true;
+      await usedSaveDetailers(st, usedDetailers(st).concat([name])); toast("Added " + name);
+    }catch(err){ toast("That didn't save. Check your connection and try again.", true); }
+    U.busy = false; usedModal(); render(true); return;
+  }
   try{
     if (U.busy) return;
     const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = $("#uErr");
     f.querySelectorAll(".err").forEach(n => n.classList.remove("err"));
     const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year"), store = g("store");
     if (!stock){ errs.push("Enter the stock number."); f.stock.classList.add("err"); }
-    if (vin && vin.length !== 17){ errs.push("VIN should be 17 characters (or leave it blank)."); f.vin.classList.add("err"); }
+    if (vin && vin.length !== 8 && vin.length !== 17){ errs.push("Enter the last 8 of the VIN (or the full 17, or leave it blank)."); f.vin.classList.add("err"); }
     if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
     if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
     if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
@@ -992,7 +1136,7 @@ document.addEventListener("submit", async e => {
     }
     const btn = $("#uSubmit"); btn.disabled = true; btn.textContent = "Adding…"; U.busy = true;
     const now = Date.now(), by = S.me || ROLES[S.role].label;
-    const d = { stock, vin, year, make: g("make"), model: g("model"), color: g("color"), notes: g("notes"),
+    const d = { stock, vin, year, make: g("make"), model: g("model"), color: g("color"), notes: g("notes"), detailer: (usedPerm(S.role).move && g("detailer")) || null,
       stage: "detail", createdAt: now, updatedAt: now, stageAt: now, doneAt: null, addedBy: by, addedRole: S.role,
       log: [{ t: now, by, a: "Added to used cars" }] };
     try{ await usedApi.add(store, d); usedClose(); toast("Added. It’s on the shop board under In detail."); render(true); }
