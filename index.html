@@ -227,6 +227,27 @@ body.tv{ background:var(--shop-bg); }
 .toast.bad{ background:var(--bad); color:#fff; }
 
 @media (prefers-reduced-motion: reduce){ .card.new{ animation:none; outline:4px solid var(--shop-ready); } }
+
+/* used cars add-on (only shows when switched on for a store) */
+.used-strip{ margin-top:18px; border-top:2px solid var(--shop-line); padding-top:12px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+@media (max-width:900px){ .used-strip{ grid-template-columns:1fr; } }
+.u-head{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:0 4px 6px; }
+.u-head h3{ font-size:clamp(18px,1.5vw,28px); color:var(--shop-muted); font-weight:600; }
+.u-head h3 b{ color:var(--shop-ink); font-weight:700; }
+.u-head .count{ font-family:var(--cond); font-weight:700; font-size:clamp(22px,1.8vw,34px); color:var(--shop-muted); }
+.u-col{ display:grid; gap:6px; align-content:start; min-width:0; }
+.u-item{ display:flex; align-items:center; gap:10px; width:100%; min-width:0; text-align:left; border:0; border-left:6px solid var(--shop-line); color:inherit; background:var(--shop-card); border-radius:10px; padding:6px 12px; font-size:clamp(15px,1.2vw,22px); line-height:1.25; }
+.u-item.u-warn{ border-left-color:var(--shop-warn); } .u-item.u-ok{ border-left-color:var(--shop-ok); }
+.u-stock{ font-family:var(--cond); font-weight:700; color:var(--shop-muted); flex:none; }
+.u-veh{ font-family:var(--cond); font-weight:700; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.u-dim{ color:var(--shop-muted); font-weight:500; }
+.u-time{ font-family:var(--cond); font-weight:600; color:var(--shop-muted); flex:none; }
+.u-more,.u-none{ color:var(--shop-muted); font-size:clamp(14px,1vw,18px); padding:2px 4px; }
+body.tv .board.has-used{ height:100vh; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+body.tv .board.has-used .board-main{ flex:1 1 0; min-height:0; overflow:hidden; }
+body.tv .board.has-used .used-strip{ flex:0 0 25vh; height:25vh; overflow:hidden; margin-top:10px; padding-top:8px; }
+body.tv .u-item{ font-size:clamp(14px,2.1vh,26px); }
+body.tv .u-head h3{ font-size:clamp(16px,2.4vh,30px); }
 </style>
 </head>
 <body>
@@ -289,7 +310,7 @@ const ROLES = {
   shop:    { label:"Detail shop",   desc:"The big screen and status updates for detailers.",  tabs:["board","queue"] },
   area:    { label:"Area manager",  desc:"All stores at a glance, plus setup.",               tabs:["stores","board","queue","add","settings"] }
 };
-const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup" };
+const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup", used:"Used cars" };
 const FORM_VIEWS = new Set(["add","settings"]);
 const perms = r => ({
   status:  ["shop","area"].includes(r),   // detail steps: shop + area manager only
@@ -662,6 +683,326 @@ document.addEventListener("click", async e => {
 })();
 /* ================= end delivery reviews ================= */
 
+/* ============================================================
+   USED CARS (add-on)
+   Bottom 1/4 of the shop TV + a "Used cars" tab for sales, shop and area manager.
+   Switch: Setup > Used cars, one per store (feature_flags 'used:<storeId>').
+   OFF, missing, or unreachable = board works exactly as before.
+   Uses its own table (used_units) only. Never writes to jobs or config.
+   Done cars are kept 30 days, then cleared.
+   Every piece is wrapped so a failure here can't break the board.
+   ============================================================ */
+const USED_STAGES = { detail:"In detail", progress:"In progress", done:"Detail & photos done" };
+const USED_PILL = { detail:"queued", progress:"working", done:"delivered" };
+const USED_BAR = { detail:"", progress:"warn", done:"ok" };
+const USED_NEXT = { detail:{ to:"progress", label:"Start" }, progress:{ to:"done", label:"Detail & photos done" } };
+const USED_KEEP = 30 * DAY;
+const U = { list: [], loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
+const memUsed = new Map();
+function uSafe(fn, d){ try{ const v = fn(); return v == null ? d : v; }catch(e){ console.warn("Used cars:", e); return d; } }
+function usedOn(store){
+  if (!U.flagOk) return false;
+  if (store === "*") return stores().some(s => U.flags[s.id] === true);
+  return U.flags[store] === true;
+}
+const usedPerm = r => ({ add: ["sales","shop","area"].includes(r), move: ["shop","area"].includes(r), del: ["sales","shop","area"].includes(r) });
+function usedTab(){ return uSafe(() => !!S.role && usedPerm(S.role).add && !!S.store && usedOn(S.store), false); }
+function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() ? t.concat(["used"]) : t; }
+const usedKeep = u => u.stage !== "done" || (u.doneAt || 0) > Date.now() - USED_KEEP;
+const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store === id) && usedKeep(u));
+const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
+const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN …" + u.vin.slice(-8) : "");
+function usedLog(u, a){ return (u.log || []).concat([{ t: Date.now(), by: S.me || ROLES[S.role].label, a }]).slice(-30); }
+
+/* --- data --- */
+async function usedLoadFlags(){
+  try{
+    if (!db){ U.flagOk = true; return; }   // preview mode: switches live in memory
+    const { data, error } = await db.from("feature_flags").select("key,enabled").like("key", "used:%");
+    if (error) throw error;
+    const f = {}; data.forEach(r => { f[r.key.slice(5)] = !!r.enabled; });
+    U.flags = f; U.flagOk = true; U.everOk = true;
+  }catch(e){
+    // Never loaded = off. A Wi-Fi blip after that keeps the last known switches so the TV doesn't flicker.
+    if (!U.everOk){ U.flags = {}; U.flagOk = false; }
+  }
+}
+async function usedLoad(){
+  if (!db){ U.list = [...memUsed.values()].map(u => Object.assign({}, u)); U.loaded = true; return; }
+  const { data, error } = await db.from("used_units").select("id,store,data").order("created_at", { ascending: false }).limit(1500);
+  if (error) throw error;
+  U.list = data.map(r => Object.assign({}, r.data, { id: r.id, store: r.store }));
+  U.loaded = true;
+  usedPurge();
+}
+// Clear done cars older than 30 days (shop TV or area manager does it, at most once an hour).
+async function usedPurge(){
+  try{
+    if (!db || !["shop","area"].includes(S.role) || Date.now() - U.lastPurge < HOUR) return;
+    U.lastPurge = Date.now();
+    const old = U.list.filter(u => !usedKeep(u)).map(u => u.id).slice(0, 200);
+    if (!old.length) return;
+    const { error } = await db.from("used_units").delete().in("id", old);
+    if (!error) U.list = U.list.filter(u => !old.includes(u.id));
+  }catch(e){}
+}
+const usedApi = {
+  async add(store, d){
+    const id = crypto.randomUUID ? crypto.randomUUID() : "u" + uid() + uid();
+    if (db){ const { error } = await db.from("used_units").insert({ id, store, data: d, created_at: new Date(d.createdAt).toISOString() }); if (error) throw error; }
+    else memUsed.set(id, Object.assign({}, d, { id, store }));
+    U.list.unshift(Object.assign({}, d, { id, store }));
+  },
+  async update(u, patch){
+    const next = Object.assign({}, u, patch, { updatedAt: Date.now() }); delete next.id; delete next.store;
+    if (db){ const { error } = await db.from("used_units").update({ data: next, updated_at: new Date().toISOString() }).eq("id", u.id); if (error) throw error; }
+    else memUsed.set(u.id, Object.assign({}, next, { id: u.id, store: u.store }));
+    const i = U.list.findIndex(x => x.id === u.id), row = Object.assign({}, next, { id: u.id, store: u.store });
+    if (i >= 0) U.list[i] = row;
+    return row;
+  },
+  async remove(u){
+    if (db){ const { error } = await db.from("used_units").delete().eq("id", u.id); if (error) throw error; }
+    else memUsed.delete(u.id);
+    U.list = U.list.filter(x => x.id !== u.id);
+  }
+};
+function usedSig(){ return JSON.stringify(U.flags) + "|" + U.flagOk + "|" + U.loaded + "|" + U.list.map(u => u.id + ":" + (u.updatedAt || 0)).join(","); }
+function usedRedraw(){
+  const on = usedOn("*"), sig = usedSig();
+  // While OFF and unchanged, never redraw: the board behaves exactly as before.
+  if (sig !== U.sig && (on || U.wasOn) && S.loaded) render();
+  U.sig = sig; U.wasOn = on;
+}
+async function usedTick(){
+  if (U.running) return; U.running = true;
+  try{
+    await usedLoadFlags();
+    if (usedOn("*")){ await usedLoad(); usedListen(); }
+  }catch(e){ console.warn("Used cars didn't load (board unaffected):", e); }
+  U.running = false;
+  uSafe(usedRedraw);
+}
+let usedRefreshTimer = null;
+function usedListen(){
+  if (!db || U.chan) return;
+  try{
+    U.chan = db.channel("used-cars")
+      .on("postgres_changes", { event: "*", schema: "public", table: "used_units" }, () => {
+        clearTimeout(usedRefreshTimer);
+        usedRefreshTimer = setTimeout(async () => { try{ await usedLoad(); }catch(e){} uSafe(usedRedraw); }, 400);
+      })
+      .subscribe();
+  }catch(e){ U.chan = null; }
+}
+(function(){
+  let started = false;
+  setInterval(() => {
+    if (!S.loaded || started) return;
+    started = true; usedTick(); setInterval(usedTick, 30000);
+  }, 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && S.loaded) usedTick(); });
+})();
+
+/* --- shop board strip (bottom quarter of the TV) --- */
+function usedStrip(store){
+  return uSafe(() => {
+    if (!usedOn(store) || !U.loaded) return "";
+    const now = Date.now(), all = usedFor(store);
+    const cap = S.tv ? Math.max(1, Math.floor((window.innerHeight * 0.25 - 60) / Math.max(34, window.innerHeight * 0.042))) : 6;
+    const cols = [
+      ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0))],
+      ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0))],
+      ["done", "Done today", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
+    ];
+    const item = (u, k) => '<button class="u-item' + (USED_BAR[k] ? " u-" + USED_BAR[k] : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
+      '<span class="u-stock">' + esc(usedId(u)) + '</span>' +
+      '<span class="u-veh">' + esc(usedVeh(u)) + (u.color ? ' <span class="u-dim">' + esc(u.color) + '</span>' : "") + '</span>' +
+      (store === "*" ? '<span class="store-tag">' + esc(storeName(u.store)) + '</span>' : "") +
+      '<span class="u-time">' + esc(k === "done" ? fmtTime(u.doneAt) : fmtDur(now - (u.stageAt || u.createdAt || now))) + '</span></button>';
+    return '<div class="used-strip" aria-label="Used cars">' + cols.map(([k, l, list]) =>
+      '<div class="u-col"><div class="u-head"><h3>Used · <b>' + l + '</b></h3><span class="count">' + list.length + '</span></div>' +
+      (list.length ? list.slice(0, cap).map(u => item(u, k)).join("") + (list.length > cap ? '<div class="u-more">+' + (list.length - cap) + ' more</div>' : "") : '<div class="u-none">None right now.</div>') + '</div>'
+    ).join("") + '</div>';
+  }, "");
+}
+
+/* --- Used cars tab --- */
+function viewUsed(){
+  return uSafe(() => {
+    if (!usedTab()) return '<div class="empty"><h3>Used cars are off for this store</h3></div>';
+    if (!U.loaded) return '<div class="empty"><h3>Loading used cars…</h3></div>';
+    const now = Date.now(), all = usedFor(S.store), p = usedPerm(S.role);
+    const open = all.filter(u => u.stage !== "done").sort((a, b) => (a.stageAt || 0) - (b.stageAt || 0));
+    const done = all.filter(u => u.stage === "done").sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+    const list = U.filter === "done" ? done : open;
+    const title = S.store === "*" ? "All stores" : storeName(S.store);
+    const rows = list.map(u => {
+      const nx = USED_NEXT[u.stage];
+      const act = (nx && p.move && S.canWrite) ? '<button class="btn primary" data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + nx.to + '">' + nx.label + '</button>' : "";
+      return '<div class="job-row' + (USED_BAR[u.stage] ? " u-" + USED_BAR[u.stage] : "") + '"><div class="bar"></div>' +
+        '<button class="job-main" data-action="u-open" data-id="' + esc(u.id) + '"><div class="job-title">' + esc(usedVeh(u)) + (u.color ? ' <span class="muted" style="font-weight:500">' + esc(u.color) + '</span>' : "") + '</div>' +
+        '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN …' + esc(u.vin.slice(-8)) + '</span>' : "") +
+        (S.store === "*" ? '<span>' + esc(storeName(u.store)) + '</span>' : "") +
+        (u.stage === "done" ? '<span>Done ' + esc(fmtTime(u.doneAt)) + '</span>' : '<span>' + esc(USED_STAGES[u.stage]) + ' for <b>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</b></span>') +
+        '<span>Added by ' + esc(u.addedBy || "—") + '</span>' +
+        '<span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></div></button>' +
+        '<div class="job-act">' + act + '</div></div>';
+    }).join("");
+    return '<div class="row"><h2>Used cars · ' + esc(title) + '</h2><span class="spacer"></span>' + (p.add && S.canWrite ? '<button class="btn primary" data-action="u-new">+ Add used car</button>' : "") + '</div>' +
+      '<div class="filters" role="group" aria-label="Filter">' +
+        '<button class="filter" data-action="u-filter" data-f="open" aria-pressed="' + (U.filter !== "done") + '">In the shop (' + open.length + ')</button>' +
+        '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Done, last 30 days (' + done.length + ')</button></div>' +
+      (rows ? '<div class="list">' + rows + '</div>' : '<div class="empty panel"><h3>Nothing here</h3><p>' + (U.filter === "done" ? "No used cars finished in the last 30 days." : "No used cars in the shop right now.") + '</p></div>');
+  }, '<div class="empty"><h3>Used cars didn’t load</h3><p>The delivery board is fine. Try again in a minute.</p></div>');
+}
+
+/* --- All stores tile line (area manager) --- */
+function usedTileLine(id){
+  return uSafe(() => {
+    if (!usedOn(id) || !U.loaded) return "";
+    const l = usedFor(id);
+    return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> done today</div>';
+  }, "");
+}
+
+/* --- Setup switch (area manager) --- */
+function usedSwitchPanel(){
+  return uSafe(() => {
+    if (S.role !== "area") return "";
+    let h = '<div class="panel"><h3 style="font-size:22px">Used cars</h3><p class="muted">Adds a used-car strip to the bottom quarter of that store’s shop TV, plus a Used cars tab for sales and the shop. Off means that store’s board works exactly like today. Finished cars are kept 30 days, then cleared.</p>';
+    if (!U.flagOk) return h + '<div class="warn-box">The used-car switches aren’t reachable right now. Used cars stay off until they are.</div></div>';
+    const dis = U.saving ? " disabled" : "";
+    return h + '<div class="set-list">' + stores().map(s => {
+      const on = U.flags[s.id] === true;
+      return '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(s.name) + '</span>' +
+        '<span style="width:44px;font-weight:700;color:' + (on ? "var(--ok)" : "var(--muted)") + '">' + (on ? "ON" : "OFF") + '</span>' +
+        '<button class="btn' + (on ? "" : " primary") + '" style="width:110px" data-action="u-flag" data-id="' + esc(s.id) + '"' + dis + '>' + (on ? "Turn off" : "Turn on") + '</button></div>';
+    }).join("") + '</div></div>';
+  }, "");
+}
+
+/* --- pop-up (its own layer, separate from the delivery sheet) --- */
+function usedRoot(){ let r = document.getElementById("usedRoot"); if (!r){ r = document.createElement("div"); r.id = "usedRoot"; document.body.appendChild(r); } return r; }
+function usedClose(){ U.modal = null; usedRoot().innerHTML = ""; }
+function usedModal(){
+  const root = usedRoot();
+  if (!U.modal){ root.innerHTML = ""; return; }
+  const wrap = (title, sub, body) => '<div class="backdrop" data-action="u-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="uTitle">' +
+    '<div class="sheet-head"><div style="flex:1;min-width:0">' + (sub ? '<div class="muted">' + sub + '</div>' : "") + '<h2 id="uTitle">' + title + '</h2></div><button class="x" data-action="u-close" aria-label="Close">×</button></div>' + body + '</div></div>';
+  if (U.modal.kind === "add"){
+    const st = stores();
+    const storeField = (S.role === "area" && st.length > 1)
+      ? '<label class="field"><span>Store <em>*</em></span><select class="input" name="store">' + st.filter(s => usedOn(s.id)).map(s => '<option value="' + esc(s.id) + '"' + (s.id === S.store ? " selected" : "") + '>' + esc(s.name) + '</option>').join("") + '</select></label>'
+      : '<input type="hidden" name="store" value="' + esc(S.store !== "*" ? S.store : ((st.find(s => usedOn(s.id)) || {}).id || "")) + '">';
+    root.innerHTML = wrap("Add used car", "Goes on the shop board under In detail", '<form class="form" data-form="u-add" novalidate autocomplete="off" style="margin-top:14px">' + storeField +
+      '<label class="field"><span>Stock number <em>*</em></span><input class="input" name="stock" autocapitalize="characters" placeholder="e.g. U24519"></label>' +
+      '<label class="field"><span>VIN <span class="muted" style="font-weight:400">(optional)</span></span><input class="input" name="vin" autocapitalize="characters" maxlength="17" placeholder="17 characters"></label>' +
+      '<div class="field"><span>Vehicle</span><div class="grid3"><input class="input" name="year" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year"><input class="input" name="make" list="makes" placeholder="Make" aria-label="Make"><input class="input" name="model" placeholder="Model" aria-label="Model"></div>' +
+        '<datalist id="makes">' + MAKES.map(m => '<option value="' + m + '">').join("") + '</datalist></div>' +
+      '<label class="field"><span>Color</span><input class="input" name="color" placeholder="e.g. Silver"></label>' +
+      '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" placeholder="Anything the detailers should know"></textarea></label>' +
+      '<div id="uErr"></div><button class="btn primary big" type="submit" id="uSubmit">Add to used cars</button></form>');
+    setTimeout(() => root.querySelector('[name="stock"]')?.focus(), 30);
+    return;
+  }
+  const u = U.list.find(x => x.id === U.modal.id);
+  if (!u){ usedClose(); return; }
+  const p = usedPerm(S.role), now = Date.now(), w = S.canWrite;
+  const stageSec = (p.move && w) ? '<div class="sec"><h3>Stage</h3><div class="seg" style="grid-template-columns:repeat(3,1fr)">' + Object.keys(USED_STAGES).map(k => '<button data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + k + '" aria-pressed="' + (u.stage === k) + '">' + USED_STAGES[k] + '</button>').join("") + '</div></div>' : "";
+  const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="u-del" data-id="' + esc(u.id) + '">' + (U.modal.confirmDel ? "Tap again to remove for good" : "Remove from used cars") + '</button></div>' : "";
+  root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
+    '<div class="row" style="margin-top:6px"><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span>' + (u.color ? '<span class="muted">' + esc(u.color) + '</span>' : "") + '</div>' +
+    '<div class="sec"><dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
+      '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
+      (u.stage !== "done" ? '<div><dt>In this stage</dt><dd>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</dd></div>' : "") +
+      (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div><div><dt>Total time</dt><dd>' + esc(fmtDur(u.doneAt - u.createdAt)) + '</dd></div>' : "") + '</dl>' +
+      (u.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(u.notes) + '</p>' : "") + '</div>' +
+    stageSec +
+    '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
+    delSec);
+  setTimeout(() => root.querySelector(".x")?.focus(), 30);
+}
+async function usedSetStage(u, to){
+  if (!u || u.stage === to || !USED_STAGES[to] || !usedPerm(S.role).move || U.busy) return;
+  const now = Date.now(), patch = { stage: to, stageAt: now, log: usedLog(u, "Moved to " + USED_STAGES[to]) };
+  if (to === "progress" && !u.startedAt) patch.startedAt = now;
+  patch.doneAt = to === "done" ? now : null;
+  U.busy = true;
+  try{ await usedApi.update(u, patch); toast(usedVeh(u) + ": " + USED_STAGES[to].toLowerCase()); }
+  catch(e){ console.warn("Used cars:", e); toast("That didn't save. Check your connection and try again.", true); }
+  U.busy = false;
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest('[data-action^="u-"]'); if (!t) return;
+  const a = t.dataset.action, find = () => U.list.find(x => x.id === t.dataset.id);
+  try{
+    if (a === "u-bg"){ if (e.target === t) usedClose(); return; }
+    if (a === "u-close"){ usedClose(); return; }
+    if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
+    if (a === "u-open"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
+    if (a === "u-filter"){ U.filter = t.dataset.f; render(true); return; }
+    if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (U.modal && U.modal.kind === "view") usedModal(); render(true); return; }
+    if (a === "u-del"){
+      const u = find(); if (!u || !usedPerm(S.role).del) return;
+      if (!U.modal.confirmDel){ U.modal.confirmDel = true; usedModal(); setTimeout(() => { if (U.modal && U.modal.confirmDel){ U.modal.confirmDel = false; usedModal(); } }, 5000); return; }
+      try{ await usedApi.remove(u); usedClose(); toast("Removed from used cars"); render(true); }
+      catch(err){ toast("That didn't save. Check your connection and try again.", true); }
+      return;
+    }
+    if (a === "u-flag"){
+      if (S.role !== "area" || U.saving) return;
+      const id = t.dataset.id, next = U.flags[id] !== true;
+      U.saving = true; t.disabled = true;
+      try{
+        if (db){
+          if (next){
+            const { error: te } = await db.from("used_units").select("id").limit(1);
+            if (te){ toast("Run the used-cars SQL in Supabase first. Nothing was changed.", true); return; }
+          }
+          const { error } = await db.from("feature_flags").upsert({ key: "used:" + id, enabled: next, updated_at: new Date().toISOString() });
+          if (error) throw error;
+        }
+        U.flags[id] = next;
+        if (next){ await usedLoad(); usedListen(); }
+        toast("Used cars " + (next ? "on" : "off") + " at " + storeName(id));
+      }catch(err){ console.warn("Used cars:", err); toast("Couldn't change the switch. Nothing was changed. Try again.", true); }
+      finally{ U.saving = false; U.sig = usedSig(); U.wasOn = usedOn("*"); render(true); }
+    }
+  }catch(err){ console.warn("Used cars:", err); }
+});
+document.addEventListener("submit", async e => {
+  const f = e.target; if (!f.dataset || f.dataset.form !== "u-add") return;
+  e.preventDefault();
+  try{
+    if (U.busy) return;
+    const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = $("#uErr");
+    f.querySelectorAll(".err").forEach(n => n.classList.remove("err"));
+    const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year"), store = g("store");
+    if (!stock){ errs.push("Enter the stock number."); f.stock.classList.add("err"); }
+    if (vin && vin.length !== 17){ errs.push("VIN should be 17 characters (or leave it blank)."); f.vin.classList.add("err"); }
+    if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
+    if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
+    if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
+    const dupe = U.list.find(u => u.store === store && u.stage !== "done" && String(u.stock).toUpperCase() === stock);
+    if (dupe && !U.modal.dupeOk){
+      U.modal.dupeOk = true;
+      err.innerHTML = '<div class="warn-box" role="alert">Stock #' + esc(stock) + ' is already in used cars (' + esc(USED_STAGES[dupe.stage]) + '). Only add it again if it’s a different car.</div>';
+      $("#uSubmit").textContent = "Add it anyway"; return;
+    }
+    const btn = $("#uSubmit"); btn.disabled = true; btn.textContent = "Adding…"; U.busy = true;
+    const now = Date.now(), by = S.me || ROLES[S.role].label;
+    const d = { stock, vin, year, make: g("make"), model: g("model"), color: g("color"), notes: g("notes"),
+      stage: "detail", createdAt: now, updatedAt: now, stageAt: now, doneAt: null, addedBy: by, addedRole: S.role,
+      log: [{ t: now, by, a: "Added to used cars" }] };
+    try{ await usedApi.add(store, d); usedClose(); toast("Added. It’s on the shop board under In detail."); render(true); }
+    catch(e2){ console.warn("Used cars:", e2); btn.disabled = false; btn.textContent = "Add to used cars"; toast("That didn't save. Check your connection and try again.", true); }
+    U.busy = false;
+  }catch(e3){ U.busy = false; console.warn("Used cars:", e3); }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && U.modal){ usedClose(); e.stopImmediatePropagation(); } });
+/* ================= end used cars ================= */
+
 /* ---------- sound ---------- */
 let audio = null;
 function chime(){
@@ -713,8 +1054,8 @@ function renderShell(){
   document.body.classList.toggle("tv", S.tv);
   const top = $("#top");
   if (!S.role){ top.innerHTML = '<div class="top-in"><div></div><div class="logo">' + logoHTML() + '</div><div></div></div>'; $("#banner").innerHTML = ""; return; }
-  const r = ROLES[S.role];
-  if (!S.view || !r.tabs.includes(S.view)) S.view = r.tabs[0];
+  const r = ROLES[S.role], tabs = tabsFor(S.role);
+  if (!S.view || !tabs.includes(S.view)) S.view = tabs[0];
   const st = stores();
   let sel = "";
   if (st.length && S.role !== "area" && S.store && S.store !== "*" && unlocked()){ sel = '<div style="font-weight:700">' + esc(storeName(S.store)) + '</div>'; }
@@ -726,7 +1067,7 @@ function renderShell(){
   top.innerHTML =
     '<div class="top-in"><div class="top-left">' + sel + '</div><div class="logo">' + logoHTML() + '</div>' +
     '<div class="top-right"><button class="role-btn" data-action="switch-role" title="Change who is using this device">' + esc(r.label) + (S.me ? " · " + esc(S.me.split(" ")[0]) : "") + '</button></div></div>' +
-    (r.tabs.length > 1 ? '<nav class="tabs" aria-label="Sections">' + r.tabs.map(t => '<button class="tab" data-action="tab" data-tab="' + t + '"' + (t === S.view ? ' aria-current="page"' : "") + '>' + TAB_LABEL[t] + '</button>').join("") + '</nav>' : "");
+    (tabs.length > 1 ? '<nav class="tabs" aria-label="Sections">' + tabs.map(t => '<button class="tab" data-action="tab" data-tab="' + t + '"' + (t === S.view ? ' aria-current="page"' : "") + '>' + TAB_LABEL[t] + '</button>').join("") + '</nav>' : "");
   let b = "";
   if (S.loaded && !S.live) b = "Setup needed: add your Supabase details to index.html. Until then, changes stay on this screen only.";
   else if (S.loaded && S.online === false) b = "Can’t reach the board right now. Check the Wi-Fi. It will reconnect on its own." + (S.lastErr ? " (" + S.lastErr + ")" : "");
@@ -753,7 +1094,7 @@ function renderMain(){
     if (stores().length === 1){ S.store = stores()[0].id; LS.set("store", S.store); setUnlock(S.store); renderShell(); }
     else { m.dataset.view = "gate"; return m.innerHTML = viewPickStore(); }
   }
-  const v = { add:viewAdd, queue:viewQueue, board:viewBoard, stores:viewStores, settings:viewSettings }[S.view];
+  const v = { add:viewAdd, queue:viewQueue, board:viewBoard, stores:viewStores, settings:viewSettings, used:viewUsed }[S.view];
   m.innerHTML = v();
   if (S.view === "add") wireAdd();
 }
@@ -971,7 +1312,7 @@ function viewBoard(){
       (j.notes ? '<div class="vcolor" style="margin-top:8px;font-size:16px">Note: ' + esc(j.notes) + '</div>' : "") +
       '</button>';
   };
-  return '<section class="board"><div class="board-head">' + (S.tv ? '<div class="board-logo">' + logoHTML(true) + '</div>' : "") +
+  const inner = '<div class="board-head">' + (S.tv ? '<div class="board-logo">' + logoHTML(true) + '</div>' : "") +
     '<h2>' + esc(title) + '</h2><span class="clock">' + esc(new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})) + '</span>' +
     (over ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">' + over + ' overdue</span>' : "") +
     (S.online === false ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">Offline, reconnecting…</span>' : "") +
@@ -982,7 +1323,9 @@ function viewBoard(){
       const list = sortJobs(all.filter(j => j.status === k));
       return '<div><div class="col-head"><h3>' + l + '</h3><span class="count">' + list.length + '</span></div><div class="col">' +
         (list.length ? list.map(card).join("") : '<div class="col-empty">' + (k === "queued" ? "No sold units waiting." : "None right now.") + '</div>') + '</div></div>';
-    }).join("") + '</div></section>' +
+    }).join("") + '</div>';
+  const strip = usedStrip(S.store);   // used cars add-on: empty string when off, so the board is unchanged
+  return (strip ? '<section class="board has-used"><div class="board-main">' + inner + '</div>' + strip + '</section>' : '<section class="board">' + inner + '</section>') +
     (S.tv ? '<button class="tv-exit" data-action="tv">Exit TV mode</button>' : "");
 }
 
@@ -1005,7 +1348,7 @@ function viewStores(){
     const top = sortJobs(st.act.filter(j => j.status !== "ready")).slice(0, 3);
     return '<div class="store-tile' + (st.over.length ? " has-bad" : "") + '"><div class="row"><h3>' + esc(s.name) + '</h3><span class="spacer"></span>' + (st.over.length ? '<span class="flag rush">' + st.over.length + ' overdue</span>' : "") + '</div>' +
       '<div class="tile-counts"><div><b>' + st.waiting + '</b><span>Waiting</span></div><div><b>' + st.working + '</b><span>In progress</span></div><div><b>' + st.ready + '</b><span>Ready</span></div></div>' +
-      '<div class="tile-line">Today: <b>' + st.sold + '</b> sold, <b>' + st.delivered + '</b> delivered' + (st.avg ? ', avg turn <b>' + esc(fmtDur(st.avg)) + '</b>' : "") + '</div>' + storeScoreLine(s.id) +
+      '<div class="tile-line">Today: <b>' + st.sold + '</b> sold, <b>' + st.delivered + '</b> delivered' + (st.avg ? ', avg turn <b>' + esc(fmtDur(st.avg)) + '</b>' : "") + '</div>' + storeScoreLine(s.id) + usedTileLine(s.id) +
       (top.length ? '<div class="mini">' + top.map(j => '<div><span>' + esc(vehicle(j)) + ' #' + esc(j.stock) + '</span><span class="' + (urgency(j, now) === "bad" ? "over" : "muted") + '">' + esc(dueText(j, now)) + '</span></div>').join("") + '</div>' : '<div class="tile-line">Shop is clear.</div>') +
       '<div class="row"><button class="btn primary" data-action="dive" data-store="' + esc(s.id) + '" data-to="board">Open board</button><button class="btn" data-action="dive" data-store="' + esc(s.id) + '" data-to="queue">Queue</button></div></div>';
   }).join("");
@@ -1031,7 +1374,7 @@ function viewSettings(){
       products().map(p => '<span class="pill" style="font-size:15px;padding:6px 6px 6px 12px">' + esc(p) + ' <button class="x" style="width:28px;height:28px;font-size:16px" data-action="del-prod" data-p="' + esc(p) + '" aria-label="Remove ' + esc(p) + '">×</button></span>').join("") +
       '</div><form class="set-item" data-form="add-prod"><input class="input" name="label" placeholder="Add a product" required><button class="btn primary" type="submit">Add</button></form></div>' +
     '<div class="panel"><h3 style="font-size:22px">Setting up a shop TV</h3><p class="muted" style="margin-bottom:0">On the TV’s browser or a cheap stick PC, open this board, choose <b>Detail shop</b>, enter that store’s code, then tap <b>TV mode</b> and <b>Turn on chime</b>. It remembers everything after that.</p></div>' +
-    reviewsSwitchPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 30 days can be cleared to keep the board fast.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
+    reviewsSwitchPanel() + usedSwitchPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 30 days can be cleared to keep the board fast.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
 }
 
 /* --- Job sheet --- */
