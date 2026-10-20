@@ -298,12 +298,28 @@ main[data-view="view"]{ max-width:1800px; }
 .tm-k small{ font-size:12px; color:var(--shop-muted); font-weight:600; }
 .tm-k.up b{ color:var(--shop-ok); } .tm-k.dn b{ color:var(--shop-bad); } .tm-k.rd b{ color:var(--shop-ready); } .tm-k.wn b{ color:var(--shop-warn); }
 .tm-d.up{ color:var(--shop-ok); } .tm-d.dn{ color:var(--shop-bad); }
-.tm-grid{ display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:10px; grid-auto-flow:row dense; }
+/* rows reflow: whatever tiles are on share the row's full width */
+.tm-row{ display:grid; gap:10px; margin-bottom:10px; grid-template-columns:repeat(var(--n,1),minmax(0,1fr)); }
+.tm-row.n1{ --n:1; } .tm-row.n2{ --n:2; } .tm-row.n3{ --n:3; } .tm-row.n4{ --n:4; }
+.tm-row.rA.n2, .tm-row.rC.n2{ grid-template-columns:minmax(0,7fr) minmax(0,5fr); }
+@media (max-width:1250px){ .tm-row.rB.n3, .tm-row.rB.n4{ grid-template-columns:repeat(2,minmax(0,1fr)); } .tm-row.rB.n3 > :last-child{ grid-column:1 / -1; } }
+@media (max-width:900px){ .tm-row, .tm-row.rA.n2, .tm-row.rC.n2, .tm-row.rB.n3, .tm-row.rB.n4{ grid-template-columns:1fr; } }
 .tm-p{ background:var(--shop-card); border:1px solid var(--shop-line); border-radius:10px; min-width:0; display:flex; flex-direction:column; }
-.tm-p.w7{ grid-column:span 7; } .tm-p.w5{ grid-column:span 5; } .tm-p.w3{ grid-column:span 3; }
-@media (max-width:1250px){ .tm-p.w3{ grid-column:span 6; } }
-@media (max-width:900px){ .tm-p.w7,.tm-p.w5,.tm-p.w3{ grid-column:1 / -1; } }
-.tm-p header{ display:flex; align-items:baseline; gap:8px; padding:9px 12px; border-bottom:1px solid var(--shop-line); }
+.tm-x{ border:1px solid var(--shop-line); background:var(--shop-bg); color:var(--shop-muted); width:28px; height:28px; border-radius:7px; font-size:13px; line-height:1; flex:none; margin-left:8px; }
+.tm-x:hover{ color:var(--shop-bad); border-color:var(--shop-bad); }
+.tm-ticker{ position:relative; } .tm-x-tk{ position:absolute; right:10px; top:50%; transform:translateY(-50%); z-index:2; margin:0; }
+.tm-kpiwrap{ position:relative; } .tm-x-k{ position:absolute; right:-6px; top:-10px; z-index:2; margin:0; }
+.tm-click{ cursor:pointer; } .tm-click:hover{ filter:brightness(1.18); } tr.tm-click:hover td{ background:color-mix(in srgb,var(--shop-ready) 10%,transparent); }
+.tm-click:focus-visible, .tm-n:focus-visible{ outline:2px solid var(--shop-ready); outline-offset:2px; }
+.tm-n{ cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+.tm-tip{ color:var(--shop-muted); font-size:13px; }
+.tm-admin-h{ display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+.tm-admin-h b{ font-size:15px; } .tm-hint{ font-size:13px; }
+.tm-sel{ background:var(--shop-card); color:var(--shop-ink); border:1px solid var(--shop-line); border-radius:8px; padding:6px 8px; font-weight:600; margin-left:6px; }
+.dr-sheet{ max-width:1100px; } .dr-wrap{ overflow:auto; margin-top:10px; }
+.dr-t{ width:100%; border-collapse:collapse; font-size:14px; } .dr-t th{ text-align:left; font-size:12px; color:var(--muted); font-weight:700; padding:6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+.dr-t td{ padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; } .dr-t td:first-child, .dr-t td:nth-child(4), .dr-t td:nth-child(5), .dr-t td:nth-child(6), .dr-t td:nth-child(7){ white-space:nowrap; } .dr-t .r{ text-align:right; } .dr-t td:nth-child(2){ min-width:13em; }
+.tm-p header{ display:flex; align-items:center; gap:8px; padding:9px 12px; border-bottom:1px solid var(--shop-line); }
 .tm-p h3{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; margin:0; color:var(--shop-muted); }
 .tm-sub{ margin-left:auto; font-family:var(--cond); font-weight:700; font-size:16px; }
 .tm-body{ padding:8px 12px 12px; overflow:auto; max-height:420px; }
@@ -1335,6 +1351,7 @@ async function lookupVin(vin){
   }catch(e){ return null; }
 }
 document.addEventListener("change", e => {
+  if (e.target.dataset && e.target.dataset.action === "vs-target"){ LS.set("vsTarget", e.target.value); render(true); return; }
   const f = e.target, form = f.form;
   if (!form || !/^u-(add|edit)$/.test(form.dataset.form || "")) return;
   if (f.name === "make"){ usedSyncVeh(form, ""); if (f.value === "__new") form.makeNew.focus(); }
@@ -2007,124 +2024,169 @@ async function vsLoad(){
   const sig = JSON.stringify(VSF.flags);
   if (sig !== VSF.sig){ VSF.sig = sig; if (S.view === "view" && S.loaded) render(); }
 }
-async function vsSave(store, changes){
-  if (S.role !== "area" || !store || store === "*") return;
+// Which store's layout the area manager is editing. From "All stores" they pick one store or every store.
+function vsTarget(){ if (S.store && S.store !== "*") return S.store; const t = LS.get("vsTarget", "__all"); return t === "__all" || stores().some(x => x.id === t) ? t : "__all"; }
+function vsShown(){ const t = vsTarget(); return t === "__all" ? ((stores()[0] || {}).id || "*") : t; }   // whose layout the screen follows
+async function vsSave(target, changes){
+  if (S.role !== "area" || !target) return;
+  const ids = target === "__all" ? stores().map(x => x.id) : [target];
+  if (!ids.length) return;
   const now = new Date().toISOString();
-  if (db){ const { error } = await db.from("feature_flags").upsert(Object.entries(changes).map(([k, on]) => ({ key: "view:" + store + ":" + k, enabled: on, updated_at: now }))); if (error) throw error; }
-  VSF.flags[store] = Object.assign({}, VSF.flags[store] || {}, changes); VSF.sig = JSON.stringify(VSF.flags);
+  if (db){ const rows = []; ids.forEach(id => Object.entries(changes).forEach(([k, on]) => rows.push({ key: "view:" + id + ":" + k, enabled: on, updated_at: now })));
+    const { error } = await db.from("feature_flags").upsert(rows); if (error) throw error; }
+  ids.forEach(id => { VSF.flags[id] = Object.assign({}, VSF.flags[id] || {}, changes); });
+  VSF.sig = JSON.stringify(VSF.flags);
 }
 function weekStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); }   // Monday
 function monthStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(1); return d.getTime(); }
+// Drill-down: every number/bar on View store remembers which cars it counted, so a tap shows them.
+const VSD = {};
+function vsReg(key, title, items, kind){ VSD[key] = { title, ids: items.map(x => x.id), kind: kind || "jobs" }; return 'data-action="vs-drill" data-k="' + esc(key) + '" role="button" tabindex="0"'; }
+function vsDrill(key){
+  const d = VSD[key]; if (!d) return;
+  const root = document.getElementById("vsRoot") || (() => { const r = document.createElement("div"); r.id = "vsRoot"; document.body.appendChild(r); return r; })();
+  const now = Date.now(), tm = t => t ? fmtTime(t) : "—";
+  let body;
+  if (d.kind === "used"){
+    const list = d.ids.map(id => U.list.find(u => u.id === id)).filter(Boolean);
+    body = list.length ? '<table class="dr-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th>Added</th><th class="r">Time in detail</th></tr></thead><tbody>' + list.map(u => { const c = usedClock(u, now);
+      return '<tr><td><b>' + esc(u.stock || "—") + '</b></td><td>' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="muted">' + esc(u.color) + '</span>' : "") + '</td><td>' + esc(USED_STAGES[u.stage]) + '</td><td>' + esc(u.detailer || "—") + '</td><td>' + esc(tm(u.createdAt)) + '</td><td class="r u-c-' + c.lvl + '"><b>' + esc(fmtDur(c.age)) + '</b></td></tr>'; }).join("") + '</tbody></table>' : '<p class="muted">No cars.</p>';
+  } else {
+    const list = d.ids.map(id => S.jobs.find(j => j.id === id)).filter(Boolean);
+    body = list.length ? '<table class="dr-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Salesperson</th><th>Sold</th><th>Due</th><th>Ready</th><th>Delivered</th><th>On time</th><th>Products</th></tr></thead><tbody>' + list.map(j => {
+      const ot = j.readyAt && j.dueAt ? (j.readyAt <= j.dueAt + MIN ? '<span class="u-c-ok">Yes</span>' : '<span class="u-c-bad">Late ' + esc(fmtDur(j.readyAt - j.dueAt)) + '</span>') : '<span class="muted">—</span>';
+      return '<tr><td><b>' + esc(j.stock) + '</b></td><td>' + esc(vehicle(j)) + (j.color ? ' <span class="muted">' + esc(j.color) + '</span>' : "") + (S.store === "*" ? '<div class="muted">' + esc(storeName(j.store)) + '</div>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td>' + esc(tm(j.createdAt)) + '</td><td>' + esc(tm(j.dueAt)) + '</td><td>' + esc(tm(j.readyAt)) + '</td><td>' + esc(tm(j.deliveredAt)) + '</td><td>' + ot + '</td><td>' + esc((j.products || []).join(", ") || "—") + '</td></tr>'; }).join("") + '</tbody></table>' : '<p class="muted">No cars.</p>';
+  }
+  root.innerHTML = '<div class="backdrop" data-action="vs-dclose"><div class="sheet dr-sheet" role="dialog" aria-modal="true" aria-labelledby="drTitle"><div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">' + d.ids.length + (d.ids.length === 1 ? " car" : " cars") + '</div><h2 id="drTitle">' + esc(d.title) + '</h2></div><button class="x" data-action="vs-dclose" aria-label="Close">×</button></div><div class="dr-wrap">' + body + '</div></div></div>';
+  setTimeout(() => root.querySelector(".x")?.focus(), 30);
+}
+document.addEventListener("click", e => { const t = e.target.closest('[data-action="vs-dclose"]'); if (!t) return; if (t.classList.contains("backdrop") && e.target !== t) return; const r = document.getElementById("vsRoot"); if (r) r.innerHTML = ""; });
+document.addEventListener("keydown", e => {
+  const r = document.getElementById("vsRoot");
+  if (e.key === "Escape" && r && r.innerHTML){ r.innerHTML = ""; e.stopImmediatePropagation(); return; }
+  if ((e.key === "Enter" || e.key === " ") && e.target.dataset && e.target.dataset.action === "vs-drill"){ e.preventDefault(); vsDrill(e.target.dataset.k); }
+}, true);
+
 function viewStore(){
-  const now = Date.now(), all = byStore(S.store), v = vsPrefs();
+  for (const k in VSD) delete VSD[k];
+  const now = Date.now(), all = byStore(S.store), area = S.role === "area";
+  const v = vsPrefs(S.store === "*" ? vsShown() : S.store);
   const multi = S.store === "*", title = multi ? "All stores" : storeName(S.store);
   const t0 = new Date(); t0.setHours(0,0,0,0); const T0 = t0.getTime(), W0 = weekStart(), M0 = monthStart();
   const lm = new Date(M0); lm.setMonth(lm.getMonth() - 1); const LM0 = lm.getTime();
   const del = all.filter(j => j.status === "delivered" && j.deliveredAt);
   const inRange = (a, b) => del.filter(j => j.deliveredAt >= a && j.deliveredAt < b);
-  const today = inRange(T0, now + 1), week = inRange(W0, now + 1), month = inRange(M0, now + 1);
-  // same point in the previous period, for the up/down arrows
+  const byNew = l => l.slice().sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0));
+  const today = byNew(inRange(T0, now + 1)), week = byNew(inRange(W0, now + 1)), month = byNew(inRange(M0, now + 1));
   const lastDay = inRange(T0 - 7 * DAY, now - 7 * DAY), lastWeek = inRange(W0 - 7 * DAY, now - 7 * DAY), lastMonth = inRange(LM0, LM0 + (now - M0));
   const open = all.filter(j => j.status !== "delivered");
   const ready = open.filter(j => j.status === "ready"), late = open.filter(j => urgency(j, now) === "bad");
-  const finished = all.filter(j => j.readyAt && j.readyAt >= M0);
-  const onTime = list => { const l = list.filter(j => j.readyAt && j.dueAt); return l.length ? Math.round(l.filter(j => j.readyAt <= j.dueAt + MIN).length / l.length * 100) : null; };
-  const avgTurn = list => { const l = list.filter(j => j.readyAt && j.createdAt && j.readyAt > j.createdAt); return l.length ? l.reduce((a, j) => a + (j.readyAt - j.createdAt), 0) / l.length : null; };
-  const readyToday = all.filter(j => j.readyAt && j.readyAt >= T0);
+  const finished = all.filter(j => j.readyAt && j.readyAt >= M0 && j.dueAt).sort((a, b) => b.readyAt - a.readyAt);
+  const readyToday = finished.filter(j => j.readyAt >= T0);
+  const onTime = l => l.length ? Math.round(l.filter(j => j.readyAt <= j.dueAt + MIN).length / l.length * 100) : null;
+  const avgTurn = l => { const x = l.filter(j => j.createdAt && j.readyAt > j.createdAt); return x.length ? x.reduce((a, j) => a + (j.readyAt - j.createdAt), 0) / x.length : null; };
   const otToday = onTime(readyToday), otMonth = onTime(finished), turnToday = avgTurn(readyToday), turnMonth = avgTurn(finished);
   const prodN = l => l.reduce((a, j) => a + (j.products || []).length, 0);
-  const useOn = !!v.used && uSafe(() => usedOn(S.store) && U.loaded, false);
+  const useOn = !!v.used && uSafe(() => (multi ? stores().some(x => usedOn(x.id)) : usedOn(S.store)) && U.loaded, false);
   const ul = useOn ? uSafe(() => usedFor(S.store), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const uDoneWk = ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= W0), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
   const tm = t => new Date(t).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
   const veh = j => esc(vehicle(j));
-  const cell = (k, cls, head, right, body) => v[k] ? '<section class="tm-p ' + cls + '"><header><h3>' + head + '</h3>' + (right || "") + '</header><div class="tm-body">' + body + '</div></section>' : "";
-  const delta = (cur, prev, label) => { if (prev == null) return ""; const d = cur - prev; return '<small class="tm-d ' + (d > 0 ? "up" : d < 0 ? "dn" : "") + '">' + (d > 0 ? "▲ " + d : d < 0 ? "▼ " + (-d) : "▬ 0") + ' ' + label + '</small>'; };
+  const hideBtn = k => area ? '<button class="tm-x" data-action="vs-hide" data-k="' + k + '" title="Hide this tile" aria-label="Hide ' + esc((VS_SECTIONS.find(x => x[0] === k) || [])[1] || k) + '">✕</button>' : "";
+  const tile = (k, head, right, body) => '<section class="tm-p"><header><h3>' + head + '</h3>' + (right || "") + hideBtn(k) + '</header><div class="tm-body">' + body + '</div></section>';
+  const delta = (cur, prev, label) => { const d = cur - prev; return '<small class="tm-d ' + (d > 0 ? "up" : d < 0 ? "dn" : "") + '">' + (d > 0 ? "▲ " + d : d < 0 ? "▼ " + (-d) : "▬ 0") + ' ' + label + '</small>'; };
+  const num = (key, ttl, items, n, kind) => '<span class="tm-n" ' + vsReg(key, ttl, items, kind) + '>' + n + '</span>';
 
   let h = '<div class="tm">';
-  // area manager: layout switches for this store
-  if (S.role === "area"){
-    if (multi) h += '<p class="tm-note">Pick a store at the top to choose what its View store screen shows.</p>';
-    else h += '<div class="tm-admin"><div><b>Layout for ' + esc(title) + '</b> <span>Only area managers can change this. Everyone at this store sees it.</span></div><div class="vs-toggles" role="group" aria-label="Show or hide panels">' + VS_SECTIONS.map(([k, l]) =>
-      '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"' + (S.vsBusy ? " disabled" : "") + '><i></i>' + l + '</button>').join("") +
-      '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div></div>';
+  // area manager layout bar
+  if (area){
+    const tgt = vsTarget(), anyOff = VS_SECTIONS.some(([k]) => !v[k]);
+    h += '<div class="tm-admin"><div class="tm-admin-h"><b>⚙ Tiles</b>' +
+      (multi ? '<label>Layout for <select class="tm-sel" data-action="vs-target"><option value="__all"' + (tgt === "__all" ? " selected" : "") + '>Every store</option>' + stores().map(x => '<option value="' + esc(x.id) + '"' + (x.id === tgt ? " selected" : "") + '>' + esc(x.name) + '</option>').join("") + '</select></label>'
+        : '<span>Layout for ' + esc(title) + '</span>') +
+      '<span class="tm-hint">Tap a tile to turn it on or off. Only area managers see this.</span>' +
+      '<button class="vs-link" data-action="vs-all" data-on="' + (anyOff ? "1" : "0") + '">' + (anyOff ? "Turn all on" : "Turn all off") + '</button></div>' +
+      '<div class="vs-toggles" role="group" aria-label="Tiles">' + VS_SECTIONS.map(([k, l]) => '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"' + (S.vsBusy ? " disabled" : "") + '><i></i>' + l + '</button>').join("") + '</div></div>';
   }
-  h += '<div class="tm-top"><h2>' + esc(title) + '</h2><span class="tm-live"><i></i>LIVE</span><span class="tm-clock">' + esc(new Date().toLocaleDateString([], { weekday:"short", month:"short", day:"numeric" })) + ' · ' + esc(tm(now)) + '</span></div>';
-  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="tm-p"><div class="tm-body tm-empty">' + (S.role === "area" ? "Everything is turned off. Turn a panel back on above." : "Nothing is turned on for this store yet.") + '</div></div></div>';
+  h += '<div class="tm-top"><h2>' + esc(title) + '</h2><span class="tm-live"><i></i>LIVE</span><span class="tm-tip">Tap any number or bar to see the cars</span><span class="tm-clock">' + esc(new Date().toLocaleDateString([], { weekday:"short", month:"short", day:"numeric" })) + ' · ' + esc(tm(now)) + '</span></div>';
+  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="tm-p"><div class="tm-body tm-empty">' + (area ? "Every tile is off. Turn some back on above." : "Nothing is turned on for this store yet.") + '</div></div></div>';
 
-  // ticker tape: what's happening, newest first
+  // ticker
   if (v.ticker){
     const ev = [];
-    del.filter(j => j.deliveredAt >= T0).forEach(j => ev.push([j.deliveredAt, "up", "DELIVERED", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
-    all.filter(j => j.readyAt && j.readyAt >= T0 && j.status === "ready").forEach(j => ev.push([j.readyAt, "rd", "READY", "#" + j.stock + " " + vehicle(j)]));
+    today.forEach(j => ev.push([j.deliveredAt, "up", "DELIVERED", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
+    ready.filter(j => j.readyAt >= T0).forEach(j => ev.push([j.readyAt, "rd", "READY", "#" + j.stock + " " + vehicle(j)]));
     all.filter(j => j.createdAt >= T0).forEach(j => ev.push([j.createdAt, "nw", "SOLD", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
     late.forEach(j => ev.push([now, "dn", "LATE", "#" + j.stock + " " + vehicle(j) + " " + dueText(j, now)]));
     if (useOn){ uLate.forEach(u => ev.push([now, "dn", "USED 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "USED DONE", "#" + (u.stock || "") + " " + usedVeh(u)])); }
     ev.sort((a, b) => b[0] - a[0]);
     const items = (ev.length ? ev.slice(0, 24) : [[now, "", "TODAY", "Quiet so far. Sold units will show up here."]]).map(e => '<span class="tk ' + e[1] + '"><b>' + e[2] + '</b> ' + esc(e[3]) + (e[2] === "LATE" || e[2] === "USED 48H+" ? "" : ' <em>' + esc(tm(e[0])) + '</em>') + '</span>').join("");
     const dur = Math.max(30, ev.length * 6);
-    h += '<div class="tm-ticker" aria-label="Today’s activity"><div class="tk-run" style="animation-duration:' + dur + 's;animation-delay:-' + ((now / 1000) % dur).toFixed(1) + 's">' + items + items + '</div></div>';
+    h += '<div class="tm-ticker">' + (area ? '<button class="tm-x tm-x-tk" data-action="vs-hide" data-k="ticker" title="Hide the ticker">✕</button>' : "") + '<div class="tk-run" style="animation-duration:' + dur + 's;animation-delay:-' + ((now / 1000) % dur).toFixed(1) + 's">' + items + items + '</div></div>';
   }
 
-  // scoreboard tiles
+  // scoreboard: every tile opens its cars
   if (v.kpis){
-    const k = (n, l, extra, cls) => '<div class="tm-k' + (cls ? " " + cls : "") + '"><span>' + l + '</span><b>' + n + '</b>' + (extra || "") + '</div>';
-    h += '<div class="tm-kpis">' +
-      k(open.length, "In the shop", '<small>' + open.filter(j => j.status === "queued").length + ' waiting · ' + open.filter(j => j.status === "working").length + ' in progress</small>') +
-      k(ready.length, "Ready", "", "rd") + k(late.length, "Late", "", late.length ? "dn" : "") +
-      k(today.length, "Delivered today", delta(today.length, lastDay.length, "vs last wk"), "up") +
-      k(week.length, "This week", delta(week.length, lastWeek.length, "vs last wk")) +
-      k(month.length, "This month", delta(month.length, lastMonth.length, "vs last mo")) +
-      k(otMonth == null ? "—" : otMonth + "%", "On time (month)", "", otMonth == null ? "" : otMonth >= 90 ? "up" : otMonth >= 75 ? "wn" : "dn") +
-      k(month.length ? (prodN(month) / month.length).toFixed(1) : "—", "Products / car (mo)") +
-      (useOn ? k(uo.length, "Used in detail", '<small>' + uLate.length + ' past 48h</small>', uLate.length ? "dn" : "") : "") + '</div>';
+    const k = (key, ttl, items, n, label, extra, cls, kind) => '<div class="tm-k tm-click' + (cls ? " " + cls : "") + '" ' + vsReg(key, ttl, items, kind) + '><span>' + label + '</span><b>' + n + '</b>' + (extra || "") + '</div>';
+    h += '<div class="tm-kpiwrap">' + (area ? '<button class="tm-x tm-x-k" data-action="vs-hide" data-k="kpis" title="Hide the scoreboard">✕</button>' : "") + '<div class="tm-kpis">' +
+      k("k-open", "In the shop", sortJobs(open), open.length, "In the shop", '<small>' + open.filter(j => j.status === "queued").length + ' waiting · ' + open.filter(j => j.status === "working").length + ' in progress</small>') +
+      k("k-ready", "Ready for delivery", ready, ready.length, "Ready", "", "rd") +
+      k("k-late", "Late right now", late, late.length, "Late", "", late.length ? "dn" : "") +
+      k("k-today", "Delivered today", today, today.length, "Delivered today", delta(today.length, lastDay.length, "vs last wk"), "up") +
+      k("k-week", "Delivered this week", week, week.length, "This week", delta(week.length, lastWeek.length, "vs last wk")) +
+      k("k-month", "Delivered this month", month, month.length, "This month", delta(month.length, lastMonth.length, "vs last mo")) +
+      k("k-ot", "Ready on time? (this month)", finished, otMonth == null ? "—" : otMonth + "%", "On time (month)", "", otMonth == null ? "" : otMonth >= 90 ? "up" : otMonth >= 75 ? "wn" : "dn") +
+      k("k-ppc", "Delivered this month, with products", month, month.length ? (prodN(month) / month.length).toFixed(1) : "—", "Products / car (mo)") +
+      (useOn ? k("k-used", "Used cars in detail", uo, uo.length, "Used in detail", '<small>' + uLate.length + ' past 48h</small>', uLate.length ? "dn" : "", "used") : "") + '</div></div>';
   }
 
-  h += '<div class="tm-grid">';
-  // live board
+  // rows: whatever is on fills the row
+  const row = (cls, tiles) => { tiles = tiles.filter(Boolean); return tiles.length ? '<div class="tm-row ' + cls + ' n' + tiles.length + '">' + tiles.join("") + '</div>' : ""; };
   const stLbl = { queued:"WAITING", working:"IN PROG", ready:"READY" };
   const rows = sortJobs(open).sort((a, b) => (a.status === "ready") - (b.status === "ready"));
-  h += cell("now", "w7", "Live board", '<span class="tm-sub">' + open.length + ' in shop</span>', rows.length ? '<table class="tm-t tm-live-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Sales</th><th>Status</th><th class="r">Due</th><th class="r">Clock</th></tr></thead><tbody>' + rows.map(j => { const u = urgency(j, now);
-      return '<tr class="u-' + u + '"><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(j.status === "ready" ? "ready " + fmtDur(now - (j.readyAt || now)) : dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
-    : '<div class="tm-empty">No cars in the shop right now.</div>');
-  // delivered today
-  h += cell("today", "w5", "Delivered today", '<span class="tm-sub">' + today.length + '</span>', today.length ? '<table class="tm-t tm-del-t"><thead><tr><th>Time</th><th>Stock</th><th>Vehicle</th><th>Sales</th><th class="r">Prod</th></tr></thead><tbody>' + today.slice().sort((a, b) => b.deliveredAt - a.deliveredAt).map(j =>
-      '<tr><td class="mono">' + esc(tm(j.deliveredAt)) + '</td><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + '</td><td>' + esc(j.salesperson || "—") + '</td><td class="r mono">' + ((j.products || []).length || "—") + '</td></tr>').join("") + '</tbody></table>'
-    : '<div class="tm-empty">No deliveries yet today.</div>');
-  // week + month charts
-  const bars = (list, cls) => { const mx = Math.max(1, ...list.map(d => d.n)); return '<div class="tm-bars">' + list.map(d => '<div class="' + (d.cur ? "cur" : "") + (d.fut ? " fut" : "") + '"><b>' + (d.fut ? "" : d.n) + '</b><i style="height:' + (d.fut ? 2 : Math.max(d.n ? 6 : 2, Math.round(d.n / mx * 100))) + '%"></i><span>' + d.l + '</span></div>').join("") + '</div>'; };
-  const days = [...Array(7)].map((_, i) => { const a = W0 + i * DAY; return { l: new Date(a).toLocaleDateString([], { weekday:"short" }), n: inRange(a, a + DAY).length, cur: a === T0, fut: a > T0 }; });
-  h += cell("week", "w3", "This week", '<span class="tm-sub">' + week.length + '</span>', bars(days));
+  const tNow = v.now ? tile("now", "Live board", '<span class="tm-sub">' + num("t-open", "In the shop", rows, open.length + " in shop") + '</span>', rows.length ? '<table class="tm-t tm-live-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Sales</th><th>Status</th><th class="r">Due</th><th class="r">Clock</th></tr></thead><tbody>' + rows.map(j => { const u = urgency(j, now);
+      return '<tr class="u-' + u + ' tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(j.status === "ready" ? "ready " + fmtDur(now - (j.readyAt || now)) : dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
+    : '<div class="tm-empty">No cars in the shop right now.</div>') : "";
+  const tToday = v.today ? tile("today", "Delivered today", '<span class="tm-sub">' + num("t-today", "Delivered today", today, today.length) + '</span>', today.length ? '<table class="tm-t tm-del-t"><thead><tr><th>Time</th><th>Stock</th><th>Vehicle</th><th>Sales</th><th class="r">Prod</th></tr></thead><tbody>' + today.map(j =>
+      '<tr class="tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(tm(j.deliveredAt)) + '</td><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + '</td><td>' + esc(j.salesperson || "—") + '</td><td class="r mono">' + ((j.products || []).length || "—") + '</td></tr>').join("") + '</tbody></table>'
+    : '<div class="tm-empty">No deliveries yet today.</div>') : "";
+  h += row("rA", [tNow, tToday]);
+
+  const bars = (pfx, list) => { const mx = Math.max(1, ...list.map(d => d.n)); return '<div class="tm-bars">' + list.map((d, i) => '<div class="' + (d.cur ? "cur" : "") + (d.fut ? " fut" : "") + (d.n ? " tm-click" : "") + '"' + (d.n ? " " + vsReg(pfx + i, d.t, d.items) : "") + '><b>' + (d.fut ? "" : d.n) + '</b><i style="height:' + (d.fut ? 2 : Math.max(d.n ? 6 : 2, Math.round(d.n / mx * 100))) + '%"></i><span>' + d.l + '</span></div>').join("") + '</div>'; };
+  const days = [...Array(7)].map((_, i) => { const a = W0 + i * DAY, it = byNew(inRange(a, a + DAY)); return { l: new Date(a).toLocaleDateString([], { weekday:"short" }), t: "Delivered " + new Date(a).toLocaleDateString([], { weekday:"long", month:"short", day:"numeric" }), items: it, n: it.length, cur: a === T0, fut: a > T0 }; });
   const wks = [], me = new Date(new Date(M0).getFullYear(), new Date(M0).getMonth() + 1, 1).getTime();
-  for (let a = M0; a <= now && a < me;){ const x = new Date(a); x.setDate(x.getDate() + (7 - ((x.getDay() + 6) % 7))); x.setHours(0,0,0,0); const e = Math.min(x.getTime(), me);
-    wks.push({ l: new Date(a).toLocaleDateString([], { month:"numeric", day:"numeric" }), n: inRange(a, e).length, cur: now >= a && now < e }); a = e; }
-  h += cell("month", "w3", "This month", '<span class="tm-sub">' + month.length + '</span>', bars(wks));
-  // on-time & speed
+  for (let a = M0; a <= now && a < me;){ const x = new Date(a); x.setDate(x.getDate() + (7 - ((x.getDay() + 6) % 7))); x.setHours(0,0,0,0); const e = Math.min(x.getTime(), me), it = byNew(inRange(a, e));
+    wks.push({ l: new Date(a).toLocaleDateString([], { month:"numeric", day:"numeric" }), t: "Delivered week of " + new Date(a).toLocaleDateString([], { month:"short", day:"numeric" }), items: it, n: it.length, cur: now >= a && now < e }); a = e; }
   const gauge = pct => { const p = pct == null ? 0 : pct, c = pct == null ? "var(--shop-line)" : p >= 90 ? "var(--shop-ok)" : p >= 75 ? "var(--shop-warn)" : "var(--shop-bad)";
-    return '<div class="tm-gauge" style="--p:' + p + ';--c:' + c + '"><b>' + (pct == null ? "—" : pct + "%") + '</b></div>'; };
-  h += cell("ontime", "w3", "On-time & speed", "", '<div class="tm-ot">' + gauge(otMonth) + '<div><span>Ready on time</span><small>this month · ' + finished.length + ' cars</small><span style="margin-top:8px">Today: <b>' + (otToday == null ? "—" : otToday + "%") + '</b></span></div></div>' +
-    '<div class="tm-two"><div><span>Sold → ready, today</span><b>' + (turnToday == null ? "—" : esc(fmtDur(turnToday))) + '</b></div><div><span>Sold → ready, month</span><b>' + (turnMonth == null ? "—" : esc(fmtDur(turnMonth))) + '</b></div></div>');
-  // products
-  const pc = {}; month.forEach(j => (j.products || []).forEach(p => pc[p] = (pc[p] || 0) + 1));
+    return '<div class="tm-gauge tm-click" style="--p:' + p + ';--c:' + c + '" ' + vsReg("g-ot", "Ready on time? (this month)", finished) + '><b>' + (pct == null ? "—" : pct + "%") + '</b></div>'; };
+  const pc = {}, pcars = {}; month.forEach(j => (j.products || []).forEach(p => { pc[p] = (pc[p] || 0) + 1; (pcars[p] = pcars[p] || []).push(j); }));
   const top = Object.entries(pc).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  h += cell("products", "w3", "Products this month", '<span class="tm-sub">' + prodN(month) + ' sold</span>', top.length ? '<div class="tm-prods">' + top.map(([p, n]) => '<div><span>' + esc(p) + '</span><b class="mono">' + n + ' <em>' + Math.round(n / month.length * 100) + '%</em></b><i style="width:' + Math.round(n / top[0][1] * 100) + '%"></i></div>').join("") + '</div>'
-    : '<div class="tm-empty">No products recorded yet.</div>');
-  // used cars
-  if (useOn) h += cell("used", "w7", "Used cars in detail", '<span class="tm-sub">' + uo.length + ' in · ' + uDoneWk.length + ' done this wk' + (uDoneWk.length ? ' · avg ' + esc(fmtDur(uDoneWk.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / uDoneWk.length)) : "") + '</span>',
-    uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now);
-      return '<tr class="u-' + (c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad") + '"><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + (c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad") + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
+  h += row("rB", [
+    v.week ? tile("week", "This week", '<span class="tm-sub">' + num("t-week", "Delivered this week", week, week.length) + '</span>', bars("wd", days)) : "",
+    v.month ? tile("month", "This month", '<span class="tm-sub">' + num("t-month", "Delivered this month", month, month.length) + '</span>', bars("mw", wks)) : "",
+    v.ontime ? tile("ontime", "On-time & speed", "", '<div class="tm-ot">' + gauge(otMonth) + '<div><span>Ready on time</span><small>this month · ' + num("t-fin", "Finished this month", finished, finished.length + " cars") + '</small><span style="margin-top:8px">Today: ' + num("t-ott", "Ready on time? (today)", readyToday, '<b>' + (otToday == null ? "—" : otToday + "%") + '</b>') + '</span></div></div>' +
+      '<div class="tm-two"><div class="tm-click" ' + vsReg("s-t", "Sold → ready, today", readyToday) + '><span>Sold → ready, today</span><b>' + (turnToday == null ? "—" : esc(fmtDur(turnToday))) + '</b></div><div class="tm-click" ' + vsReg("s-m", "Sold → ready, this month", finished) + '><span>Sold → ready, month</span><b>' + (turnMonth == null ? "—" : esc(fmtDur(turnMonth))) + '</b></div></div>') : "",
+    v.products ? tile("products", "Products this month", '<span class="tm-sub">' + prodN(month) + ' sold</span>', top.length ? '<div class="tm-prods">' + top.map(([p, n], i) => '<div class="tm-click" ' + vsReg("p" + i, p + " (this month)", pcars[p]) + '><span>' + esc(p) + '</span><b class="mono">' + n + ' <em>' + Math.round(n / month.length * 100) + '%</em></b><i style="width:' + Math.round(n / top[0][1] * 100) + '%"></i></div>').join("") + '</div>'
+      : '<div class="tm-empty">No products recorded yet.</div>') : ""
+  ]);
+
+  let tUsed = "", tRank = "";
+  if (useOn) tUsed = tile("used", "Used cars in detail", '<span class="tm-sub">' + num("t-uo", "Used cars in detail", uo, uo.length + " in", "used") + ' · ' + num("t-ud", "Used cars done this week", uDoneWk, uDoneWk.length + " done this wk", "used") + (uDoneWk.length ? ' · avg ' + esc(fmtDur(uDoneWk.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / uDoneWk.length)) : "") + '</span>',
+    uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now), l = c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad";
+      return '<tr class="u-' + l + ' tm-click" ' + vsReg("u-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
       : '<div class="tm-empty">No used cars in detail right now.</div>');
-  // ranking (month, with today/week columns: no clicking needed)
   if (v.rank){
-    const t = {}; const add = (l, key) => l.forEach(j => { const n = (j.salesperson || "Unknown").trim(); t[n] = t[n] || { d: 0, w: 0, m: 0, p: 0 }; t[n][key]++; if (key === "m") t[n].p += (j.products || []).length; });
+    const t = {}; const add = (l, key) => l.forEach(j => { const n = (j.salesperson || "Unknown").trim(); t[n] = t[n] || { d: [], w: [], m: [], p: 0 }; t[n][key].push(j); if (key === "m") t[n].p += (j.products || []).length; });
     add(today, "d"); add(week, "w"); add(month, "m");
-    const rk = Object.entries(t).sort((a, b) => b[1].m - a[1].m || b[1].w - a[1].w || a[0].localeCompare(b[0]));
-    const mx = rk.length ? rk[0][1].m || 1 : 1;
-    h += cell("rank", "w5", "Salesperson ranking", '<span class="tm-sub">by month</span>', rk.length ? '<table class="tm-t tm-rank"><thead><tr><th>#</th><th>Salesperson</th><th></th><th class="r">Today</th><th class="r">Week</th><th class="r">Month</th><th class="r">Prod/car</th></tr></thead><tbody>' + rk.map(([n, r], i) =>
-      '<tr><td><span class="tm-pl p' + (i + 1) + '">' + (i + 1) + '</span></td><td><b>' + esc(n) + '</b></td><td class="tm-meter"><i style="width:' + Math.round(r.m / mx * 100) + '%"></i></td><td class="r mono">' + r.d + '</td><td class="r mono">' + r.w + '</td><td class="r mono"><b>' + r.m + '</b></td><td class="r mono">' + (r.m ? (r.p / r.m).toFixed(1) : "—") + '</td></tr>').join("") + '</tbody></table>'
+    const rk = Object.entries(t).sort((a, b) => b[1].m.length - a[1].m.length || b[1].w.length - a[1].w.length || a[0].localeCompare(b[0]));
+    const mx = rk.length ? rk[0][1].m.length || 1 : 1;
+    const c = (key, ttl, l) => '<td class="r mono">' + (l.length ? '<span class="tm-n" ' + vsReg(key, ttl, l) + '>' + l.length + '</span>' : "0") + '</td>';
+    tRank = tile("rank", "Salesperson ranking", '<span class="tm-sub">by month</span>', rk.length ? '<table class="tm-t tm-rank"><thead><tr><th>#</th><th>Salesperson</th><th></th><th class="r">Today</th><th class="r">Week</th><th class="r">Month</th><th class="r">Prod/car</th></tr></thead><tbody>' + rk.map(([n, r], i) =>
+      '<tr><td><span class="tm-pl p' + (i + 1) + '">' + (i + 1) + '</span></td><td><b>' + esc(n) + '</b></td><td class="tm-meter"><i style="width:' + Math.round(r.m.length / mx * 100) + '%"></i></td>' + c("r" + i + "d", n + " · today", r.d) + c("r" + i + "w", n + " · this week", r.w) + c("r" + i + "m", n + " · this month", r.m) + '<td class="r mono">' + (r.m.length ? (r.p / r.m.length).toFixed(1) : "—") + '</td></tr>').join("") + '</tbody></table>'
       : '<div class="tm-empty">No deliveries this month yet.</div>');
   }
-  return h + '</div></div>';
+  h += row("rC", [tUsed, tRank]);
+  return h + '</div>';
 }
 
 /* --- Shop board --- */
@@ -2291,15 +2353,19 @@ document.addEventListener("click", async e => {
     case "pick-store": setUnlock(t.dataset.store); render(true); break;
     case "tab": S.view = t.dataset.tab; S.addDone = null; render(true); window.scrollTo(0,0); break;
     case "filter": S.filter = t.dataset.f; render(true); break;
-    case "vs-toggle": case "vs-all": {
-      if (S.role !== "area" || !S.store || S.store === "*" || S.vsBusy) break;
-      const ch = {};
-      if (a === "vs-toggle") ch[t.dataset.k] = !vsPrefs()[t.dataset.k]; else VS_SECTIONS.forEach(([k]) => ch[k] = t.dataset.on === "1");
+    case "vs-toggle": case "vs-all": case "vs-hide": {
+      if (S.role !== "area" || S.vsBusy) break;
+      const tgt = vsTarget(), cur = vsPrefs(vsShown()), ch = {};
+      if (a === "vs-toggle") ch[t.dataset.k] = !cur[t.dataset.k];
+      else if (a === "vs-hide") ch[t.dataset.k] = false;
+      else VS_SECTIONS.forEach(([k]) => ch[k] = t.dataset.on === "1");
       S.vsBusy = true;
-      try{ await vsSave(S.store, ch); toast("Layout updated for " + storeName(S.store)); }
+      try{ await vsSave(tgt, ch); toast("Layout updated for " + (tgt === "__all" ? "every store" : storeName(tgt))); }
       catch(err){ toast("Couldn't change the layout. Nothing was changed. Try again.", true); }
       S.vsBusy = false; render(true); break;
     }
+    case "vs-edit": S.vsEdit = !S.vsEdit; render(true); break;
+    case "vs-drill": vsDrill(t.dataset.k); break;
     case "vs-rank": LS.set("rankBy", t.dataset.p); render(true); break;
     case "open": openSheet(t.dataset.id, t.dataset.focus); break;
     case "close": closeSheet(); break;
