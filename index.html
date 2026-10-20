@@ -868,7 +868,7 @@ document.addEventListener("click", async e => {
    Switch: Setup > Used cars, one per store (feature_flags 'used:<storeId>').
    OFF, missing, or unreachable = board works exactly as before.
    Uses its own table (used_units) only. Never writes to jobs or config.
-   Done cars are kept 30 days, then cleared.
+   Done cars are kept 90 days, then cleared.
    Every piece is wrapped so a failure here can't break the board.
    ============================================================ */
 const USED_STAGES = { detail:"In detail", progress:"In progress", done:"Detail & photos done" };
@@ -877,7 +877,7 @@ const USED_GOAL = 24 * HOUR, USED_MAX = 48 * HOUR;   // timer: 24h expected, 48h
 const USED_SET = "_settings";                           // detailer lists live in used_units under this store id
 const BARCODE_LIB = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
 const USED_NEXT = { detail:{ to:"progress", label:"Start" }, progress:{ to:"done", label:"Detail & photos done" } };
-const USED_KEEP = 30 * DAY;
+const USED_KEEP = 90 * DAY;
 const U = { list: [], detailers: {}, loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
 const memUsed = new Map();
 function uSafe(fn, d){ try{ const v = fn(); return v == null ? d : v; }catch(e){ console.warn("Used cars:", e); return d; } }
@@ -925,7 +925,7 @@ async function usedLoadFlags(){
 }
 async function usedLoad(){
   if (!db){ U.list = [...memUsed.values()].map(u => Object.assign({}, u)); U.loaded = true; return; }   // preview: detailers stay in U.detailers
-  const { data, error } = await db.from("used_units").select("id,store,data").order("created_at", { ascending: false }).limit(1500);
+  const { data, error } = await db.from("used_units").select("id,store,data").order("created_at", { ascending: false }).limit(6000);
   if (error) throw error;
   const det = {};
   U.list = data.filter(r => { if (r.store !== USED_SET) return true; if (r.id.startsWith("detailers:")) det[r.id.slice(10)] = (r.data && r.data.names) || []; else if (r.id === "models") U.models = (r.data && r.data.models) || {}; return false; })
@@ -934,7 +934,7 @@ async function usedLoad(){
   U.loaded = true;
   usedPurge();
 }
-// Clear done cars older than 30 days (shop TV or area manager does it, at most once an hour).
+// Clear done cars older than 90 days (shop TV or area manager does it, at most once an hour).
 async function usedPurge(){
   try{
     if (!db || !["shop","area"].includes(S.role) || Date.now() - U.lastPurge < HOUR) return;
@@ -1109,8 +1109,8 @@ function viewUsed(){
       '<p class="muted" style="margin:6px 0 0">Timer starts when a car is added: 24 hours expected, 48 hours max.</p>' +
       '<div class="filters" role="group" aria-label="Filter">' +
         '<button class="filter" data-action="u-filter" data-f="open" aria-pressed="' + (U.filter !== "done") + '">In the shop (' + open.length + ')</button>' +
-        '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Done, last 30 days (' + done.length + ')</button></div>' +
-      (rows ? '<div class="list">' + rows + '</div>' : '<div class="empty panel"><h3>Nothing here</h3><p>' + (U.filter === "done" ? "No used cars finished in the last 30 days." : "No used cars in the shop right now.") + '</p></div>');
+        '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Done, last 90 days (' + done.length + ')</button></div>' +
+      (rows ? '<div class="list">' + rows + '</div>' : '<div class="empty panel"><h3>Nothing here</h3><p>' + (U.filter === "done" ? "No used cars finished in the last 90 days." : "No used cars in the shop right now.") + '</p></div>');
   }, '<div class="empty"><h3>Used cars didn’t load</h3><p>The delivery board is fine. Try again in a minute.</p></div>');
 }
 
@@ -1129,7 +1129,7 @@ function usedTileLine(id){
 function usedSwitchPanel(){
   return uSafe(() => {
     if (S.role !== "area") return "";
-    let h = '<div class="panel"><h3 style="font-size:22px">Used cars</h3><p class="muted">Adds a used-car strip to the bottom quarter of that store’s shop TV, plus a Used cars tab for sales and the shop. Off means that store’s board works exactly like today. Finished cars are kept 30 days, then cleared.</p>';
+    let h = '<div class="panel"><h3 style="font-size:22px">Used cars</h3><p class="muted">Adds a used-car strip to the bottom quarter of that store’s shop TV, plus a Used cars tab for sales and the shop. Off means that store’s board works exactly like today. Finished cars are kept 90 days, then cleared.</p>';
     if (!U.flagOk) return h + '<div class="warn-box">The used-car switches aren’t reachable right now. Used cars stay off until they are.</div></div>';
     const dis = U.saving ? " disabled" : "";
     return h + '<div class="set-list">' + stores().map(s => {
@@ -2133,6 +2133,8 @@ function viewStore(){
   const ul = useOn ? uSafe(() => usedFor(S.store), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const uDone30 = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - 30 * DAY).sort((a, b) => b.doneAt - a.doneAt), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
   const uAvg = uDone30.length ? uDone30.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / uDone30.length : null;
+  const UW = [30, 60, 90].map(d => { const l = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - d * DAY).sort((a, b) => b.doneAt - a.doneAt);
+    return { d, l, avg: l.length ? l.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / l.length : null, in24: l.length ? Math.round(l.filter(u => u.doneAt - u.createdAt <= USED_GOAL).length / l.length * 100) : null, over48: l.filter(u => u.doneAt - u.createdAt > USED_MAX) }; });
   const tm = t => new Date(t).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
   const veh = j => esc(vehicle(j));
   const tile = (head, right, body) => '<section class="tm-p"><header><h3>' + head + '</h3>' + (right || "") + '</header><div class="tm-body">' + body + '</div></section>';
@@ -2215,7 +2217,12 @@ function viewStore(){
   if (useOn) tUsed = tile("Used cars in detail", '<span class="tm-sub">' + num("t-uo", "Used cars in detail", uo, uo.length + " in", "used") + ' · ' + num("t-ud", "Used cars done, last 30 days", uDone30, uDone30.length + " done 30d", "used") + ' · avg ' + esc(dur(uAvg)) + '</span>',
     uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now), l = c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad";
       return '<tr class="u-' + l + ' tm-click" ' + vsReg("u-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(u.store)) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
-      : '<div class="tm-empty">No used cars in detail right now.</div>');
+      : '<div class="tm-empty">No used cars in detail right now.</div>') ;
+  if (useOn) tUsed = tUsed.replace('</div></section>', '<table class="tm-t tm-avg"><thead><tr><th>Finished used cars</th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
+      '<tr><td>Cars done</td>' + UW.map(x => x.l.length ? '<td class="r mono"><span class="tm-n" ' + vsReg("ud" + x.d, "Used cars done, last " + x.d + " days", x.l, "used") + '>' + x.l.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr>' +
+      '<tr><td>Avg time in detail</td>' + UW.map(x => '<td class="r mono">' + esc(dur(x.avg)) + '</td>').join("") + '</tr>' +
+      '<tr><td>Done within 24h</td>' + UW.map(x => '<td class="r mono">' + pct(x.in24) + '</td>').join("") + '</tr>' +
+      '<tr><td>Took over 48h</td>' + UW.map(x => x.over48.length ? '<td class="r mono c-bad"><span class="tm-n" ' + vsReg("uo" + x.d, "Used cars over 48h, last " + x.d + " days", x.over48, "used") + '>' + x.over48.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr></tbody></table></div></section>');
   if (v.rank){
     const d90 = last(90), t = {};
     const add = (l, key) => l.forEach(j => { const n = (j.salesperson || "Unknown").trim(); t[n] = t[n] || { d: [], w: [], m: [], q: [], p: 0 }; t[n][key].push(j); if (key === "m") t[n].p += (j.products || []).length; });
@@ -2314,7 +2321,7 @@ function viewSettings(){
       products().map(p => '<span class="pill" style="font-size:15px;padding:6px 6px 6px 12px">' + esc(p) + ' <button class="x" style="width:28px;height:28px;font-size:16px" data-action="del-prod" data-p="' + esc(p) + '" aria-label="Remove ' + esc(p) + '">×</button></span>').join("") +
       '</div><form class="set-item" data-form="add-prod"><input class="input" name="label" placeholder="Add a product" required><button class="btn primary" type="submit">Add</button></form></div>' +
     '<div class="panel"><h3 style="font-size:22px">Setting up a shop TV</h3><p class="muted" style="margin-bottom:0">On the TV’s browser or a cheap stick PC, open this board, choose <b>Detail shop</b>, enter that store’s code, then tap <b>TV mode</b> and <b>Turn on chime</b>. It remembers everything after that.</p></div>' +
-    reviewsSwitchPanel() + usedSwitchPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 120 days can be cleared to keep the board fast. (View store averages use the last 90 days.)</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
+    reviewsSwitchPanel() + usedSwitchPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
 }
 
 /* --- Job sheet --- */
@@ -2439,7 +2446,7 @@ document.addEventListener("click", async e => {
       await api.saveConfig(Object.assign({}, S.config, { stores: next })).catch(()=>{}); render(true); break; }
     case "logo-clear": await api.saveConfig(Object.assign({}, S.config, { logoId: null })).catch(()=>{}); render(true); break;
     case "cleanup": {
-      const old = S.jobs.filter(j => j.status === "delivered" && (j.deliveredAt || 0) < Date.now() - 120 * 24 * HOUR);
+      const old = S.jobs.filter(j => j.status === "delivered" && (j.deliveredAt || 0) < Date.now() - 90 * 24 * HOUR);
       if (!old.length){ toast("Nothing to clear."); break; }
       t.disabled = true;
       for (const j of old){ try{ await api.remove(j.id); }catch(err){ break; } }
