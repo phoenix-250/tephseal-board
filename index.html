@@ -270,7 +270,77 @@ body.tv .board{ overflow:hidden; }
 .u-head .tv-page{ margin-left:8px; }
 .col-head h3, .u-head h3{ display:inline; }
 .col-head > h3 + .tv-page, .u-head > h3 + .tv-page{ margin-right:auto; }
-/* View store */
+/* View store: store terminal */
+main[data-view="view"]{ max-width:1800px; }
+.tm{ background:var(--shop-bg); color:var(--shop-ink); border-radius:16px; padding:14px; margin:0 -4px; font-variant-numeric:tabular-nums; }
+.tm .mono{ font-family:var(--cond); font-weight:600; letter-spacing:.01em; }
+.tm .dim{ color:var(--shop-muted); font-weight:500; }
+.tm-note{ color:var(--shop-muted); margin:0 0 10px; }
+.tm-admin{ border:1px dashed var(--shop-line); border-radius:12px; padding:10px 12px 2px; margin-bottom:12px; font-size:14px; }
+.tm-admin span{ color:var(--shop-muted); } .tm-admin .vs-sw{ background:var(--shop-card); border-color:var(--shop-line); color:var(--shop-muted); } .tm-admin .vs-sw[aria-checked="true"]{ color:var(--shop-ink); } .tm-admin .vs-link{ color:var(--shop-ready); }
+.tm-top{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+.tm-top h2{ font-size:clamp(22px,2.4vw,32px); margin:0; }
+.tm-live{ display:inline-flex; align-items:center; gap:6px; font-weight:800; font-size:12px; letter-spacing:.1em; color:var(--shop-ok); border:1px solid var(--shop-ok); border-radius:6px; padding:2px 8px; }
+.tm-live i{ width:8px; height:8px; border-radius:50%; background:var(--shop-ok); animation:tmblink 1.6s infinite; }
+@keyframes tmblink{ 50%{ opacity:.25; } }
+.tm-clock{ margin-left:auto; color:var(--shop-muted); font-family:var(--cond); font-weight:600; font-size:18px; }
+.tm-ticker{ overflow:hidden; white-space:nowrap; background:#07111c; border-top:1px solid var(--shop-line); border-bottom:1px solid var(--shop-line); margin:0 -14px 12px; padding:8px 0; }
+.tk-run{ display:inline-block; animation:tmtick linear infinite; }
+@keyframes tmtick{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+.tk{ display:inline-block; margin-right:34px; font-family:var(--cond); font-size:18px; font-weight:600; }
+.tk b{ font-weight:800; margin-right:4px; } .tk em{ font-style:normal; color:var(--shop-muted); margin-left:4px; }
+.tk.up b{ color:var(--shop-ok); } .tk.dn b{ color:var(--shop-bad); } .tk.rd b{ color:var(--shop-ready); } .tk.nw b{ color:var(--shop-warn); }
+@media (prefers-reduced-motion: reduce){ .tk-run{ animation:none; } .tm-ticker{ overflow-x:auto; } }
+.tm-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-bottom:10px; }
+.tm-k{ background:var(--shop-card); border:1px solid var(--shop-line); border-radius:10px; padding:10px 12px; display:grid; gap:2px; align-content:start; }
+.tm-k span{ font-size:12px; font-weight:700; color:var(--shop-muted); text-transform:uppercase; letter-spacing:.05em; }
+.tm-k b{ font-family:var(--cond); font-size:clamp(28px,2.6vw,40px); line-height:1.05; }
+.tm-k small{ font-size:12px; color:var(--shop-muted); font-weight:600; }
+.tm-k.up b{ color:var(--shop-ok); } .tm-k.dn b{ color:var(--shop-bad); } .tm-k.rd b{ color:var(--shop-ready); } .tm-k.wn b{ color:var(--shop-warn); }
+.tm-d.up{ color:var(--shop-ok); } .tm-d.dn{ color:var(--shop-bad); }
+.tm-grid{ display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:10px; grid-auto-flow:row dense; }
+.tm-p{ background:var(--shop-card); border:1px solid var(--shop-line); border-radius:10px; min-width:0; display:flex; flex-direction:column; }
+.tm-p.w7{ grid-column:span 7; } .tm-p.w5{ grid-column:span 5; } .tm-p.w3{ grid-column:span 3; }
+@media (max-width:1250px){ .tm-p.w3{ grid-column:span 6; } }
+@media (max-width:900px){ .tm-p.w7,.tm-p.w5,.tm-p.w3{ grid-column:1 / -1; } }
+.tm-p header{ display:flex; align-items:baseline; gap:8px; padding:9px 12px; border-bottom:1px solid var(--shop-line); }
+.tm-p h3{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; margin:0; color:var(--shop-muted); }
+.tm-sub{ margin-left:auto; font-family:var(--cond); font-weight:700; font-size:16px; }
+.tm-body{ padding:8px 12px 12px; overflow:auto; max-height:420px; }
+.tm-empty{ color:var(--shop-muted); padding:14px 2px; }
+.tm-t{ width:100%; border-collapse:collapse; font-size:14px; }
+.tm-t th{ text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--shop-muted); padding:4px 6px; position:sticky; top:-8px; background:var(--shop-card); }
+.tm-t td{ padding:6px; border-top:1px solid var(--shop-line); white-space:nowrap; }
+.tm-t td:nth-child(2){ white-space:normal; }
+.tm-t .r{ text-align:right; }
+.tm-t tr.u-bad td:first-child{ box-shadow:inset 3px 0 0 var(--shop-bad); } .tm-t tr.u-warn td:first-child{ box-shadow:inset 3px 0 0 var(--shop-warn); } .tm-t tr.u-ok td:first-child{ box-shadow:inset 3px 0 0 var(--shop-ok); } .tm-t tr.u-ready td:first-child{ box-shadow:inset 3px 0 0 var(--shop-ready); }
+.c-bad{ color:var(--shop-bad); font-weight:700; } .c-warn{ color:var(--shop-warn); } .c-ok{ color:var(--shop-ok); } .c-ready{ color:var(--shop-ready); }
+.tm-st{ font-family:var(--cond); font-weight:800; font-size:12px; letter-spacing:.06em; padding:2px 7px; border-radius:4px; background:var(--shop-line); }
+.tm-st.working{ color:var(--shop-warn); background:color-mix(in srgb,var(--shop-warn) 16%,transparent); } .tm-st.ready{ color:var(--shop-ready); background:color-mix(in srgb,var(--shop-ready) 18%,transparent); }
+.tm-tag{ font-size:10px; font-weight:800; color:var(--shop-warn); border:1px solid var(--shop-warn); border-radius:4px; padding:0 4px; margin-left:4px; }
+.tm-bars{ display:flex; gap:6px; align-items:flex-end; height:150px; }
+.tm-bars > div{ flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; gap:3px; min-width:0; }
+.tm-bars i{ width:100%; max-width:40px; background:var(--shop-ready); opacity:.7; border-radius:3px 3px 0 0; }
+.tm-bars .cur i{ background:var(--shop-ok); opacity:1; } .tm-bars .fut i{ background:var(--shop-line); }
+.tm-bars b{ font-family:var(--cond); font-size:16px; } .tm-bars span{ font-size:11px; color:var(--shop-muted); font-weight:700; white-space:nowrap; }
+.tm-ot{ display:flex; gap:14px; align-items:center; } .tm-ot > div:last-child{ display:grid; } .tm-ot small{ color:var(--shop-muted); }
+.tm-gauge{ --p:0; --c:var(--shop-ok); width:96px; height:96px; flex:none; border-radius:50%; background:conic-gradient(var(--c) calc(var(--p) * 1%), var(--shop-line) 0); display:grid; place-items:center; position:relative; }
+.tm-gauge::before{ content:""; position:absolute; inset:10px; border-radius:50%; background:var(--shop-card); }
+.tm-gauge b{ position:relative; font-family:var(--cond); font-size:24px; }
+.tm-two{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.tm-two div{ background:var(--shop-bg); border-radius:8px; padding:8px 10px; display:grid; } .tm-two span{ font-size:12px; color:var(--shop-muted); font-weight:600; } .tm-two b{ font-family:var(--cond); font-size:24px; }
+.tm-prods{ display:grid; gap:9px; } .tm-prods div{ display:grid; grid-template-columns:1fr auto; gap:3px 8px; font-size:14px; font-weight:600; }
+.tm-prods em{ font-style:normal; color:var(--shop-muted); font-size:12px; } .tm-prods i{ grid-column:1 / -1; height:6px; border-radius:3px; background:var(--shop-ready); }
+.tm-pl{ display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; background:var(--shop-line); font-weight:800; font-size:13px; }
+.tm-pl.p1{ background:#E8B923; color:#2b2000; } .tm-pl.p2{ background:#C7CED6; color:#1d2530; } .tm-pl.p3{ background:#C98A55; color:#2d1606; }
+.tm-meter{ width:30%; } .tm-meter i{ display:block; height:8px; border-radius:4px; background:var(--shop-ready); }
+@media (max-width:640px){
+  .tm-live-t th:nth-child(3), .tm-live-t td:nth-child(3), .tm-live-t th:nth-child(5), .tm-live-t td:nth-child(5),
+  .tm-del-t th:nth-child(5), .tm-del-t td:nth-child(5), .tm-rank th:nth-child(7), .tm-rank td:nth-child(7), .tm-used-t th:nth-child(2), .tm-used-t td:nth-child(2), .tm-used-t th:nth-child(4), .tm-used-t td:nth-child(4){ display:none; }
+  .tm-t .dim{ display:none; } .tm-t td:nth-child(2), .tm-del-t td:nth-child(3){ white-space:normal; min-width:8em; } .tm-del-t td:nth-child(2){ white-space:nowrap; min-width:0; } .tm-t td, .tm-t th{ padding:6px 4px; }
+}
+@media (max-width:560px){ .tm{ padding:10px; border-radius:12px; } .tm-ticker{ margin:0 -10px 10px; } .tm-meter{ display:none; } .tm-t{ font-size:13px; } }
+/* View store (shared bits) */
 .vs-toggles{ display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 6px; align-items:center; }
 .vs-sw{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--surface); border-radius:999px; padding:6px 14px 6px 8px; font-weight:600; min-height:42px; color:var(--muted); }
 .vs-sw i{ width:34px; height:20px; border-radius:999px; background:var(--line); position:relative; transition:background .15s; flex:none; }
@@ -1916,11 +1986,11 @@ function nextStep(j){
 }
 
 /* --- View store: a read-only picture of the store for the dealership --- */
-const VS_SECTIONS = [["now","Right now"],["today","Today"],["week","This week"],["month","This month"],["used","Used cars"],["rank","Salesperson ranking"]];
+const VS_SECTIONS = [["ticker","Ticker"],["kpis","Scoreboard"],["now","Live board"],["today","Delivered today"],["week","This week"],["month","This month"],["ontime","On-time & speed"],["products","Products"],["used","Used cars"],["rank","Salesperson ranking"]];
 // Layout is set per store by the area manager (feature_flags 'view:<storeId>:<section>'). Everyone else just sees it.
 const VSF = { flags: {}, sig: "" };
 function vsPrefs(store){
-  const d = { now:true, today:true, week:true, month:true, used:true, rank:false };
+  const d = { ticker:true, kpis:true, now:true, today:true, week:true, month:true, ontime:true, products:true, used:true, rank:false };
   store = store || S.store;
   if (store && store !== "*") Object.assign(d, VSF.flags[store] || {});
   return d;
@@ -1947,92 +2017,114 @@ function weekStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.get
 function monthStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(1); return d.getTime(); }
 function viewStore(){
   const now = Date.now(), all = byStore(S.store), v = vsPrefs();
-  const delivered = all.filter(j => j.status === "delivered" && j.deliveredAt);
-  const t0 = new Date(); t0.setHours(0,0,0,0);
-  const today = delivered.filter(j => j.deliveredAt >= t0.getTime()), week = delivered.filter(j => j.deliveredAt >= weekStart()), month = delivered.filter(j => j.deliveredAt >= monthStart());
+  const multi = S.store === "*", title = multi ? "All stores" : storeName(S.store);
+  const t0 = new Date(); t0.setHours(0,0,0,0); const T0 = t0.getTime(), W0 = weekStart(), M0 = monthStart();
+  const lm = new Date(M0); lm.setMonth(lm.getMonth() - 1); const LM0 = lm.getTime();
+  const del = all.filter(j => j.status === "delivered" && j.deliveredAt);
+  const inRange = (a, b) => del.filter(j => j.deliveredAt >= a && j.deliveredAt < b);
+  const today = inRange(T0, now + 1), week = inRange(W0, now + 1), month = inRange(M0, now + 1);
+  // same point in the previous period, for the up/down arrows
+  const lastDay = inRange(T0 - 7 * DAY, now - 7 * DAY), lastWeek = inRange(W0 - 7 * DAY, now - 7 * DAY), lastMonth = inRange(LM0, LM0 + (now - M0));
   const open = all.filter(j => j.status !== "delivered");
-  const multi = S.store === "*";
-  const title = multi ? "All stores" : storeName(S.store);
-  const veh = j => '<b>' + esc(vehicle(j)) + '</b>' + (j.color ? ' <span class="muted">' + esc(j.color) + '</span>' : "");
-  const sub = j => '#' + esc(j.stock) + (j.salesperson ? ' · ' + esc(j.salesperson) : "") + (multi ? ' · ' + esc(storeName(j.store)) : "");
-  const sec = (k, head, body) => v[k] ? '<section class="vs-sec panel"><h3>' + head + '</h3>' + body + '</section>' : "";
+  const ready = open.filter(j => j.status === "ready"), late = open.filter(j => urgency(j, now) === "bad");
+  const finished = all.filter(j => j.readyAt && j.readyAt >= M0);
+  const onTime = list => { const l = list.filter(j => j.readyAt && j.dueAt); return l.length ? Math.round(l.filter(j => j.readyAt <= j.dueAt + MIN).length / l.length * 100) : null; };
+  const avgTurn = list => { const l = list.filter(j => j.readyAt && j.createdAt && j.readyAt > j.createdAt); return l.length ? l.reduce((a, j) => a + (j.readyAt - j.createdAt), 0) / l.length : null; };
+  const readyToday = all.filter(j => j.readyAt && j.readyAt >= T0);
+  const otToday = onTime(readyToday), otMonth = onTime(finished), turnToday = avgTurn(readyToday), turnMonth = avgTurn(finished);
+  const prodN = l => l.reduce((a, j) => a + (j.products || []).length, 0);
+  const useOn = !!v.used && uSafe(() => usedOn(S.store) && U.loaded, false);
+  const ul = useOn ? uSafe(() => usedFor(S.store), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const uDoneWk = ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= W0), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
+  const tm = t => new Date(t).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+  const veh = j => esc(vehicle(j));
+  const cell = (k, cls, head, right, body) => v[k] ? '<section class="tm-p ' + cls + '"><header><h3>' + head + '</h3>' + (right || "") + '</header><div class="tm-body">' + body + '</div></section>' : "";
+  const delta = (cur, prev, label) => { if (prev == null) return ""; const d = cur - prev; return '<small class="tm-d ' + (d > 0 ? "up" : d < 0 ? "dn" : "") + '">' + (d > 0 ? "▲ " + d : d < 0 ? "▼ " + (-d) : "▬ 0") + ' ' + label + '</small>'; };
 
-  // stat strip
-  const stat = (n, l, cls) => '<div class="vs-stat' + (cls ? " " + cls : "") + '"><b>' + n + '</b><span>' + l + '</span></div>';
-  let h = '<div class="row"><h2>' + esc(title) + '</h2><span class="spacer"></span><span class="muted">' + esc(new Date().toLocaleDateString([], { weekday:"long", month:"short", day:"numeric" })) + '</span></div>';
+  let h = '<div class="tm">';
+  // area manager: layout switches for this store
   if (S.role === "area"){
-    if (multi) h += '<p class="muted vs-note">Pick a store at the top to change what its View store page shows.</p>';
-    else h += '<div class="vs-admin"><div class="vs-note"><b>Layout for ' + esc(title) + '</b> <span class="muted">Only area managers can change this. Everyone at this store sees it.</span></div><div class="vs-toggles" role="group" aria-label="Show or hide sections">' + VS_SECTIONS.map(([k, l]) =>
+    if (multi) h += '<p class="tm-note">Pick a store at the top to choose what its View store screen shows.</p>';
+    else h += '<div class="tm-admin"><div><b>Layout for ' + esc(title) + '</b> <span>Only area managers can change this. Everyone at this store sees it.</span></div><div class="vs-toggles" role="group" aria-label="Show or hide panels">' + VS_SECTIONS.map(([k, l]) =>
       '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"' + (S.vsBusy ? " disabled" : "") + '><i></i>' + l + '</button>').join("") +
-    '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div></div>';
+      '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div></div>';
   }
-  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="empty panel"><h3>Nothing to show yet</h3><p>' + (S.role === "area" ? "Turn a section back on above." : "Your area manager hasn’t turned on any sections for this store.") + '</p></div>';
-  h += '<div class="vs-stats">' +
-    (v.now ? stat(open.length, "In the shop now") + stat(open.filter(j => j.status === "ready").length, "Ready for delivery", "ready") : "") +
-    (v.today ? stat(today.length, "Delivered today", "ok") : "") + (v.week ? stat(week.length, "This week") : "") + (v.month ? stat(month.length, "This month") : "") + '</div>';
+  h += '<div class="tm-top"><h2>' + esc(title) + '</h2><span class="tm-live"><i></i>LIVE</span><span class="tm-clock">' + esc(new Date().toLocaleDateString([], { weekday:"short", month:"short", day:"numeric" })) + ' · ' + esc(tm(now)) + '</span></div>';
+  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="tm-p"><div class="tm-body tm-empty">' + (S.role === "area" ? "Everything is turned off. Turn a panel back on above." : "Nothing is turned on for this store yet.") + '</div></div></div>';
 
-  // right now
-  const nowCols = [["queued","Waiting"],["working","In progress"],["ready","Ready for delivery"]].map(([st, l]) => {
-    const list = sortJobs(open.filter(j => j.status === st));
-    return '<div class="vs-col"><div class="vs-col-h"><span class="pill ' + st + '">' + l + '</span><b>' + list.length + '</b></div>' +
-      (list.length ? list.map(j => { const u = urgency(j, now);
-        return '<div class="vs-item u-' + u + '"><div>' + veh(j) + '<div class="muted vs-sub">' + sub(j) + '</div></div><div class="vs-when">' +
-          (st === "ready" ? '<span class="vs-ok">Ready ' + esc(fmtDur(now - (j.readyAt || now))) + '</span>' : '<span class="' + (u === "bad" ? "vs-bad" : u === "warn" ? "vs-warn" : "") + '">Due ' + esc(fmtTime(j.dueAt)) + '</span><small>' + esc(dueText(j, now)) + '</small>') + '</div></div>'; }).join("")
-        : '<div class="muted vs-none">None</div>') + '</div>';
-  }).join("");
-  h += sec("now", "Right now", '<div class="vs-cols">' + nowCols + '</div>');
-
-  // today
-  h += sec("today", "Delivered today <span class=\"vs-count\">" + today.length + "</span>", today.length ? '<div class="vs-list">' + today.slice().sort((a, b) => b.deliveredAt - a.deliveredAt).map(j =>
-    '<div class="vs-item u-delivered"><div>' + veh(j) + '<div class="muted vs-sub">' + sub(j) + (j.products && j.products.length ? ' · ' + esc(j.products.join(", ")) : "") + '</div></div><div class="vs-when"><span>' + esc(new Date(j.deliveredAt).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })) + '</span></div></div>').join("") + '</div>'
-    : '<p class="muted">No deliveries yet today.</p>');
-
-  // week: a bar per day, Monday to Sunday
-  const days = [...Array(7)].map((_, i) => { const a = weekStart() + i * DAY; return { l: new Date(a).toLocaleDateString([], { weekday:"short" }), n: week.filter(j => j.deliveredAt >= a && j.deliveredAt < a + DAY).length, today: a === t0.getTime(), future: a > t0.getTime() }; });
-  const bars = (list, max) => '<div class="vs-bars">' + list.map(d => '<div class="vs-bar' + (d.today ? " now" : "") + (d.future ? " future" : "") + '"><b>' + (d.future ? "" : d.n) + '</b><i style="height:' + (max ? Math.max(d.n ? 6 : 2, Math.round(d.n / max * 100)) : 2) + '%"></i><span>' + d.l + '</span></div>').join("") + '</div>';
-  const wmax = Math.max(1, ...days.map(d => d.n));
-  h += sec("week", "This week <span class=\"vs-count\">" + week.length + "</span>", bars(days, wmax));
-
-  // month: a bar per week + top products
-  const ms = monthStart(), wks = [];
-  const me = new Date(new Date(ms).getFullYear(), new Date(ms).getMonth() + 1, 1).getTime();
-  for (let a = ms; a <= now && a < me;){
-    const x = new Date(a); x.setDate(x.getDate() + (7 - ((x.getDay() + 6) % 7))); x.setHours(0,0,0,0);   // next Monday
-    const e = Math.min(x.getTime(), me);
-    wks.push({ l: new Date(a).toLocaleDateString([], { month:"short", day:"numeric" }), n: month.filter(j => j.deliveredAt >= a && j.deliveredAt < e).length, today: now >= a && now < e });
-    a = e;
-  }
-  const prodCount = {}; month.forEach(j => (j.products || []).forEach(p => prodCount[p] = (prodCount[p] || 0) + 1));
-  const prods = Object.entries(prodCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  h += sec("month", "This month <span class=\"vs-count\">" + month.length + "</span>", '<div class="vs-split"><div><div class="muted vs-sub" style="margin-bottom:6px">Deliveries by week</div>' + bars(wks, Math.max(1, ...wks.map(w => w.n))) + '</div>' +
-    '<div><div class="muted vs-sub" style="margin-bottom:6px">Top products</div>' + (prods.length ? '<div class="vs-prods">' + prods.map(([p, n]) => '<div><span>' + esc(p) + '</span><b>' + n + '</b><i style="width:' + Math.round(n / prods[0][1] * 100) + '%"></i></div>').join("") + '</div>' : '<p class="muted">No products recorded yet.</p>') + '</div></div>');
-
-  // used cars (only when switched on for this store)
-  if (v.used && uSafe(() => usedOn(S.store) && U.loaded, false)){
-    const ul = uSafe(() => usedFor(S.store), []), uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    const ud = ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= weekStart());
-    const avg = ud.length ? fmtDur(ud.reduce((s2, u) => s2 + (u.doneAt - u.createdAt), 0) / ud.length) : "—";
-    h += sec("used", "Used cars in detail <span class=\"vs-count\">" + uo.length + "</span>",
-      '<div class="vs-stats small">' + stat(uo.filter(u => u.stage === "detail").length, "Waiting on detail") + stat(uo.filter(u => u.stage === "progress").length, "Being detailed") +
-        stat(uo.filter(u => usedClock(u, now).lvl === "bad").length, "Past 48 hours", "bad") + stat(ud.length, "Done this week", "ok") + stat(avg, "Avg time this week") + '</div>' +
-      (uo.length ? '<div class="vs-table"><div class="vs-tr vs-th"><span>Stock / VIN</span><span>Vehicle</span><span>Stage</span><span>Detailer</span><span>Time in detail</span></div>' + uo.map(u => { const c = usedClock(u, now);
-        return '<div class="vs-tr"><span><b>' + esc(u.stock || "—") + '</b>' + (u.vin ? '<small class="muted">VIN ' + esc(String(u.vin).slice(-8)) + '</small>' : "") + '</span><span><b>' + esc(usedVeh(u)) + '</b>' + (u.color ? '<small class="muted">' + esc(u.color) + '</small>' : "") + (multi ? '<small class="muted">' + esc(storeName(u.store)) + '</small>' : "") + '</span>' +
-          '<span><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></span><span>' + esc(u.detailer || "Not assigned") + '</span>' +
-          '<span class="vs-time u-c-' + c.lvl + '"><b>' + esc(fmtDur(c.age)) + '</b><small>' + esc(c.txt) + '</small></span></div>'; }).join("") + '</div>'
-        : '<p class="muted">No used cars in detail right now.</p>'));
+  // ticker tape: what's happening, newest first
+  if (v.ticker){
+    const ev = [];
+    del.filter(j => j.deliveredAt >= T0).forEach(j => ev.push([j.deliveredAt, "up", "DELIVERED", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
+    all.filter(j => j.readyAt && j.readyAt >= T0 && j.status === "ready").forEach(j => ev.push([j.readyAt, "rd", "READY", "#" + j.stock + " " + vehicle(j)]));
+    all.filter(j => j.createdAt >= T0).forEach(j => ev.push([j.createdAt, "nw", "SOLD", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
+    late.forEach(j => ev.push([now, "dn", "LATE", "#" + j.stock + " " + vehicle(j) + " " + dueText(j, now)]));
+    if (useOn){ uLate.forEach(u => ev.push([now, "dn", "USED 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "USED DONE", "#" + (u.stock || "") + " " + usedVeh(u)])); }
+    ev.sort((a, b) => b[0] - a[0]);
+    const items = (ev.length ? ev.slice(0, 24) : [[now, "", "TODAY", "Quiet so far. Sold units will show up here."]]).map(e => '<span class="tk ' + e[1] + '"><b>' + e[2] + '</b> ' + esc(e[3]) + (e[2] === "LATE" || e[2] === "USED 48H+" ? "" : ' <em>' + esc(tm(e[0])) + '</em>') + '</span>').join("");
+    const dur = Math.max(30, ev.length * 6);
+    h += '<div class="tm-ticker" aria-label="Today’s activity"><div class="tk-run" style="animation-duration:' + dur + 's;animation-delay:-' + ((now / 1000) % dur).toFixed(1) + 's">' + items + items + '</div></div>';
   }
 
-  // ranking (off unless switched on)
+  // scoreboard tiles
+  if (v.kpis){
+    const k = (n, l, extra, cls) => '<div class="tm-k' + (cls ? " " + cls : "") + '"><span>' + l + '</span><b>' + n + '</b>' + (extra || "") + '</div>';
+    h += '<div class="tm-kpis">' +
+      k(open.length, "In the shop", '<small>' + open.filter(j => j.status === "queued").length + ' waiting · ' + open.filter(j => j.status === "working").length + ' in progress</small>') +
+      k(ready.length, "Ready", "", "rd") + k(late.length, "Late", "", late.length ? "dn" : "") +
+      k(today.length, "Delivered today", delta(today.length, lastDay.length, "vs last wk"), "up") +
+      k(week.length, "This week", delta(week.length, lastWeek.length, "vs last wk")) +
+      k(month.length, "This month", delta(month.length, lastMonth.length, "vs last mo")) +
+      k(otMonth == null ? "—" : otMonth + "%", "On time (month)", "", otMonth == null ? "" : otMonth >= 90 ? "up" : otMonth >= 75 ? "wn" : "dn") +
+      k(month.length ? (prodN(month) / month.length).toFixed(1) : "—", "Products / car (mo)") +
+      (useOn ? k(uo.length, "Used in detail", '<small>' + uLate.length + ' past 48h</small>', uLate.length ? "dn" : "") : "") + '</div>';
+  }
+
+  h += '<div class="tm-grid">';
+  // live board
+  const stLbl = { queued:"WAITING", working:"IN PROG", ready:"READY" };
+  const rows = sortJobs(open).sort((a, b) => (a.status === "ready") - (b.status === "ready"));
+  h += cell("now", "w7", "Live board", '<span class="tm-sub">' + open.length + ' in shop</span>', rows.length ? '<table class="tm-t tm-live-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Sales</th><th>Status</th><th class="r">Due</th><th class="r">Clock</th></tr></thead><tbody>' + rows.map(j => { const u = urgency(j, now);
+      return '<tr class="u-' + u + '"><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(j.status === "ready" ? "ready " + fmtDur(now - (j.readyAt || now)) : dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
+    : '<div class="tm-empty">No cars in the shop right now.</div>');
+  // delivered today
+  h += cell("today", "w5", "Delivered today", '<span class="tm-sub">' + today.length + '</span>', today.length ? '<table class="tm-t tm-del-t"><thead><tr><th>Time</th><th>Stock</th><th>Vehicle</th><th>Sales</th><th class="r">Prod</th></tr></thead><tbody>' + today.slice().sort((a, b) => b.deliveredAt - a.deliveredAt).map(j =>
+      '<tr><td class="mono">' + esc(tm(j.deliveredAt)) + '</td><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + '</td><td>' + esc(j.salesperson || "—") + '</td><td class="r mono">' + ((j.products || []).length || "—") + '</td></tr>').join("") + '</tbody></table>'
+    : '<div class="tm-empty">No deliveries yet today.</div>');
+  // week + month charts
+  const bars = (list, cls) => { const mx = Math.max(1, ...list.map(d => d.n)); return '<div class="tm-bars">' + list.map(d => '<div class="' + (d.cur ? "cur" : "") + (d.fut ? " fut" : "") + '"><b>' + (d.fut ? "" : d.n) + '</b><i style="height:' + (d.fut ? 2 : Math.max(d.n ? 6 : 2, Math.round(d.n / mx * 100))) + '%"></i><span>' + d.l + '</span></div>').join("") + '</div>'; };
+  const days = [...Array(7)].map((_, i) => { const a = W0 + i * DAY; return { l: new Date(a).toLocaleDateString([], { weekday:"short" }), n: inRange(a, a + DAY).length, cur: a === T0, fut: a > T0 }; });
+  h += cell("week", "w3", "This week", '<span class="tm-sub">' + week.length + '</span>', bars(days));
+  const wks = [], me = new Date(new Date(M0).getFullYear(), new Date(M0).getMonth() + 1, 1).getTime();
+  for (let a = M0; a <= now && a < me;){ const x = new Date(a); x.setDate(x.getDate() + (7 - ((x.getDay() + 6) % 7))); x.setHours(0,0,0,0); const e = Math.min(x.getTime(), me);
+    wks.push({ l: new Date(a).toLocaleDateString([], { month:"numeric", day:"numeric" }), n: inRange(a, e).length, cur: now >= a && now < e }); a = e; }
+  h += cell("month", "w3", "This month", '<span class="tm-sub">' + month.length + '</span>', bars(wks));
+  // on-time & speed
+  const gauge = pct => { const p = pct == null ? 0 : pct, c = pct == null ? "var(--shop-line)" : p >= 90 ? "var(--shop-ok)" : p >= 75 ? "var(--shop-warn)" : "var(--shop-bad)";
+    return '<div class="tm-gauge" style="--p:' + p + ';--c:' + c + '"><b>' + (pct == null ? "—" : pct + "%") + '</b></div>'; };
+  h += cell("ontime", "w3", "On-time & speed", "", '<div class="tm-ot">' + gauge(otMonth) + '<div><span>Ready on time</span><small>this month · ' + finished.length + ' cars</small><span style="margin-top:8px">Today: <b>' + (otToday == null ? "—" : otToday + "%") + '</b></span></div></div>' +
+    '<div class="tm-two"><div><span>Sold → ready, today</span><b>' + (turnToday == null ? "—" : esc(fmtDur(turnToday))) + '</b></div><div><span>Sold → ready, month</span><b>' + (turnMonth == null ? "—" : esc(fmtDur(turnMonth))) + '</b></div></div>');
+  // products
+  const pc = {}; month.forEach(j => (j.products || []).forEach(p => pc[p] = (pc[p] || 0) + 1));
+  const top = Object.entries(pc).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  h += cell("products", "w3", "Products this month", '<span class="tm-sub">' + prodN(month) + ' sold</span>', top.length ? '<div class="tm-prods">' + top.map(([p, n]) => '<div><span>' + esc(p) + '</span><b class="mono">' + n + ' <em>' + Math.round(n / month.length * 100) + '%</em></b><i style="width:' + Math.round(n / top[0][1] * 100) + '%"></i></div>').join("") + '</div>'
+    : '<div class="tm-empty">No products recorded yet.</div>');
+  // used cars
+  if (useOn) h += cell("used", "w7", "Used cars in detail", '<span class="tm-sub">' + uo.length + ' in · ' + uDoneWk.length + ' done this wk' + (uDoneWk.length ? ' · avg ' + esc(fmtDur(uDoneWk.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / uDoneWk.length)) : "") + '</span>',
+    uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now);
+      return '<tr class="u-' + (c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad") + '"><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + (c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad") + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
+      : '<div class="tm-empty">No used cars in detail right now.</div>');
+  // ranking (month, with today/week columns: no clicking needed)
   if (v.rank){
-    const per = LS.get("rankBy", "month"), src = per === "today" ? today : per === "week" ? week : month;
-    const tally = {}; src.forEach(j => { const n = (j.salesperson || "Unknown").trim(); tally[n] = tally[n] || { d: 0, p: 0 }; tally[n].d++; tally[n].p += (j.products || []).length; });
-    const rows = Object.entries(tally).sort((a, b) => b[1].d - a[1].d || b[1].p - a[1].p || a[0].localeCompare(b[0]));
-    const top = rows.length ? rows[0][1].d : 1;
-    h += sec("rank", "Salesperson ranking", '<div class="filters" role="group" aria-label="Period" style="margin-top:0">' + [["today","Today"],["week","This week"],["month","This month"]].map(([k, l]) => '<button class="filter" data-action="vs-rank" data-p="' + k + '" aria-pressed="' + (per === k) + '">' + l + '</button>').join("") + '</div>' +
-      (rows.length ? '<ol class="vs-rank">' + rows.map(([n, r], i) => '<li><span class="vs-place p' + (i + 1) + '">' + (i + 1) + '</span><span class="vs-name">' + esc(n) + '</span><span class="vs-meter"><i style="width:' + Math.round(r.d / top * 100) + '%"></i></span><b>' + r.d + '</b><span class="muted vs-sub">' + (r.d === 1 ? "delivery" : "deliveries") + (r.p ? " · " + r.p + (r.p === 1 ? " product" : " products") : "") + '</span></li>').join("") + '</ol>'
-        : '<p class="muted">No deliveries in this period yet.</p>'));
+    const t = {}; const add = (l, key) => l.forEach(j => { const n = (j.salesperson || "Unknown").trim(); t[n] = t[n] || { d: 0, w: 0, m: 0, p: 0 }; t[n][key]++; if (key === "m") t[n].p += (j.products || []).length; });
+    add(today, "d"); add(week, "w"); add(month, "m");
+    const rk = Object.entries(t).sort((a, b) => b[1].m - a[1].m || b[1].w - a[1].w || a[0].localeCompare(b[0]));
+    const mx = rk.length ? rk[0][1].m || 1 : 1;
+    h += cell("rank", "w5", "Salesperson ranking", '<span class="tm-sub">by month</span>', rk.length ? '<table class="tm-t tm-rank"><thead><tr><th>#</th><th>Salesperson</th><th></th><th class="r">Today</th><th class="r">Week</th><th class="r">Month</th><th class="r">Prod/car</th></tr></thead><tbody>' + rk.map(([n, r], i) =>
+      '<tr><td><span class="tm-pl p' + (i + 1) + '">' + (i + 1) + '</span></td><td><b>' + esc(n) + '</b></td><td class="tm-meter"><i style="width:' + Math.round(r.m / mx * 100) + '%"></i></td><td class="r mono">' + r.d + '</td><td class="r mono">' + r.w + '</td><td class="r mono"><b>' + r.m + '</b></td><td class="r mono">' + (r.m ? (r.p / r.m).toFixed(1) : "—") + '</td></tr>').join("") + '</tbody></table>'
+      : '<div class="tm-empty">No deliveries this month yet.</div>');
   }
-  return h;
+  return h + '</div></div>';
 }
 
 /* --- Shop board --- */
