@@ -229,8 +229,10 @@ body.tv{ background:var(--shop-bg); }
 @media (prefers-reduced-motion: reduce){ .card.new{ animation:none; outline:4px solid var(--shop-ready); } }
 
 /* used cars add-on (only shows when switched on for a store) */
-.used-strip{ margin-top:18px; border-top:2px solid var(--shop-line); padding-top:12px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
-@media (max-width:900px){ .used-strip{ grid-template-columns:1fr; } }
+.used-strip{ margin-top:18px; border-top:2px solid var(--shop-line); padding-top:12px; }
+.used-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+@media (max-width:900px){ .used-grid{ grid-template-columns:1fr; } }
+.u-list{ display:grid; gap:6px; }
 .u-head{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:0 4px 6px; }
 .u-head h3{ font-size:clamp(18px,1.5vw,28px); color:var(--shop-muted); font-weight:600; }
 .u-head h3 b{ color:var(--shop-ink); font-weight:700; }
@@ -252,15 +254,6 @@ body.tv .board.has-used .used-strip{ flex:0 0 25vh; height:25vh; overflow:hidden
 body.tv .u-item{ font-size:clamp(14px,2.1vh,26px); }
 body.tv .u-head h3{ font-size:clamp(16px,2.4vh,30px); }
 .u-who{ flex:none; color:var(--shop-muted); font-weight:600; max-width:9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-/* TV fit: cards that don't fit are hidden and counted, never silently cut off */
-.fit-hide{ display:none !important; }
-.card-mini{ display:none; align-items:center; gap:10px; width:100%; min-width:0; text-align:left; border:0; border-left:8px solid var(--shop-line); color:inherit; background:var(--shop-card); border-radius:10px; padding:6px 12px; font-size:clamp(15px,2.4vh,28px); line-height:1.25; }
-.card-mini.show{ display:flex; }
-.card-mini.u-ok{ border-left-color:var(--shop-ok); } .card-mini.u-warn{ border-left-color:var(--shop-warn); } .card-mini.u-ready{ border-left-color:var(--shop-ready); }
-.card-mini.u-bad{ border-left-color:var(--shop-bad); box-shadow:inset 0 0 0 2px var(--shop-bad); }
-.card-mini .due-bad{ color:var(--shop-bad); font-weight:700; } .card-mini .due-warn{ color:var(--shop-warn); } .card-mini .due-ok{ color:var(--shop-ok); }
-.u-col .col-more{ font-size:clamp(14px,1.9vh,22px); padding:3px 10px; }
-.col-more{ font-family:var(--cond); font-weight:700; font-size:clamp(18px,2.4vh,30px); color:var(--shop-ink); background:var(--shop-line); border-radius:10px; padding:6px 14px; text-align:center; }
 /* TV with used strip on: tighter delivery cards so more fit above the strip */
 body.tv .board.has-used .board-head{ margin-bottom:10px; }
 body.tv .board.has-used .col-head{ padding-bottom:6px; margin-bottom:8px; }
@@ -271,11 +264,27 @@ body.tv .board.has-used .vcolor{ font-size:clamp(14px,1.9vh,22px); }
 body.tv .board.has-used .card-stats{ margin-top:6px; }
 body.tv .board.has-used .card-stats dd{ font-size:clamp(18px,2.7vh,30px); }
 body.tv .board.has-used .prods{ margin-top:6px; }
+body.tv .board{ overflow:hidden; }
+.board-cols .col, .u-list{ grid-auto-rows:max-content; }   /* cards keep full height when a TV page clips the list */
+.tv-page{ font-family:var(--cond); font-weight:700; font-size:clamp(14px,2vh,24px); color:var(--shop-bg); background:var(--shop-ink); border-radius:999px; padding:2px 12px; margin-left:12px; white-space:nowrap; }
+.u-head .tv-page{ margin-left:8px; }
+.col-head h3, .u-head h3{ display:inline; }
+.col-head > h3 + .tv-page, .u-head > h3 + .tv-page{ margin-right:auto; }
 /* used-car form */
 .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .chip{ min-height:40px; padding:6px 14px; border:2px solid var(--line); background:var(--surface); border-radius:999px; font-weight:600; }
 .chip[aria-pressed="true"]{ border-color:var(--brand); background:var(--brand); color:var(--brand-ink); }
 .form input[name="vin"]::placeholder,.form input[name="stock"]::placeholder{ text-transform:none; }
+.scan{ position:fixed; inset:0; z-index:90; background:#000; color:#fff; }
+.scan video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
+.scan.live video{ opacity:1; }
+.scan-box{ position:absolute; left:4%; right:4%; top:30%; height:40%; border:3px solid rgba(255,255,255,.9); border-radius:14px; box-shadow:0 0 0 100vmax rgba(0,0,0,.45); pointer-events:none; }
+.scan.live .scan-box i{ position:absolute; left:4%; right:4%; top:50%; height:2px; background:#ff3b30; box-shadow:0 0 8px #ff3b30; }
+.scan-top{ position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 16px) 18px 14px; display:grid; gap:6px; text-align:center; font-size:17px; }
+.scan-top b{ font-size:22px; }
+.scan-bar{ position:absolute; left:0; right:0; bottom:0; padding:14px 14px calc(env(safe-area-inset-bottom,0px) + 18px); display:flex; gap:10px; justify-content:center; }
+.scan-bar .btn{ flex:1; max-width:180px; min-height:54px; background:rgba(255,255,255,.14); color:#fff; border-color:rgba(255,255,255,.4); }
+.scan-bar .btn[aria-pressed="true"]{ background:#fff; color:#000; }
 .u-scanbig{ width:100%; min-height:56px; font-size:18px; }
 .u-ok-msg{ background:var(--ok); color:#fff; border-radius:10px; padding:10px 14px; font-weight:600; margin-top:10px; }
 </style>
@@ -864,7 +873,7 @@ function usedStrip(store){
   return uSafe(() => {
     if (!usedOn(store) || !U.loaded) return "";
     const now = Date.now(), all = usedFor(store);
-    const cap = S.tv ? 999 : 6;   // TV: fitTV() hides what doesn't fit and shows "+N more"
+    const cap = S.tv ? 999 : 6;   // TV shows them all: fitTV() shrinks to fit, then pages on its own
     const cols = [
       ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
@@ -876,10 +885,10 @@ function usedStrip(store){
       (u.detailer ? '<span class="u-who">' + esc(u.detailer) + '</span>' : "") +
       (store === "*" ? '<span class="store-tag">' + esc(storeName(u.store)) + '</span>' : "") +
       '<span class="u-time u-t-' + c.lvl + '">' + esc(c.short) + '</span></button>'; };
-    return '<div class="used-strip" aria-label="Used cars">' + cols.map(([k, l, list]) =>
-      '<div class="u-col"><div class="u-head"><h3>Used · <b>' + l + '</b></h3><span class="count">' + list.length + '</span></div>' +
-      (list.length ? list.slice(0, cap).map(u => item(u, k)).join("") + (list.length > cap ? '<div class="u-more">+' + (list.length - cap) + ' more</div>' : "") : '<div class="u-none">None right now.</div>') + '</div>'
-    ).join("") + '</div>';
+    return '<div class="used-strip" aria-label="Used cars"><div class="used-grid">' + cols.map(([k, l, list]) =>
+      '<div class="u-col"><div class="u-head"><h3>Used · <b>' + l + '</b></h3><span class="count">' + list.length + '</span></div><div class="u-list">' +
+      (list.length ? list.slice(0, cap).map(u => item(u, k)).join("") + (list.length > cap ? '<div class="u-more">+' + (list.length - cap) + ' more</div>' : "") : '<div class="u-none">None right now.</div>') + '</div></div>'
+    ).join("") + '</div></div>';
   }, "");
 }
 
@@ -948,7 +957,7 @@ function usedSwitchPanel(){
 
 /* --- pop-up (its own layer, separate from the delivery sheet) --- */
 function usedRoot(){ let r = document.getElementById("usedRoot"); if (!r){ r = document.createElement("div"); r.id = "usedRoot"; document.body.appendChild(r); } return r; }
-function usedClose(){ const back = U.modal && U.modal.kind === "team" && U.modal.back; U.modal = back ? { kind: "view", id: back } : null; if (back){ usedModal(); return; } usedRoot().innerHTML = ""; }
+function usedClose(){ scanStop(); const back = U.modal && U.modal.kind === "team" && U.modal.back; U.modal = back ? { kind: "view", id: back } : null; if (back){ usedModal(); return; } usedRoot().innerHTML = ""; }
 function usedModal(){
   const root = usedRoot();
   if (!U.modal){ root.innerHTML = ""; return; }
@@ -1050,25 +1059,69 @@ function cleanVin(t){
   if (v.length === 18 && /^[IA]/.test(v)) v = v.slice(1);   // some VIN barcodes start with an extra I
   return /^[A-HJ-NPR-Z0-9]{17}$/.test(v) ? v : null;
 }
-async function readVinPhoto(file){
-  const Z = await loadBarcodeLib();
-  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
+const VIN_FORMATS = ["code_39","code_128","data_matrix","qr_code","pdf417"];
+let vinReader = null;
+function zxReader(Z){
+  if (vinReader) return vinReader;
   const hints = new Map();
   hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.CODE_39, Z.BarcodeFormat.CODE_128, Z.BarcodeFormat.DATA_MATRIX, Z.BarcodeFormat.QR_CODE, Z.BarcodeFormat.PDF_417]);
   hints.set(Z.DecodeHintType.TRY_HARDER, true);
-  const reader = new Z.MultiFormatReader(); reader.setHints(hints);
-  for (const size of [1600, 2400, 1000]){
-    for (const rot of [0, 90]){
-      const sc = Math.min(1, size / Math.max(img.width, img.height)), w = Math.round(img.width * sc), h = Math.round(img.height * sc);
-      const cv = document.createElement("canvas"), cx = cv.getContext("2d");
-      cv.width = rot ? h : w; cv.height = rot ? w : h;
-      if (rot){ cx.translate(cv.width, 0); cx.rotate(Math.PI / 2); }
-      cx.drawImage(img, 0, 0, w, h);
-      try{
-        const r = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv))));
-        const v = cleanVin(r.getText()); if (v) return v;
-      }catch(e){}
+  vinReader = new Z.MultiFormatReader(); vinReader.setHints(hints);
+  return vinReader;
+}
+let nativeDet;   // phone's built-in barcode reader (most Android phones). undefined = not checked yet
+async function nativeDetector(){
+  if (nativeDet !== undefined) return nativeDet;
+  nativeDet = null;
+  try{
+    if ("BarcodeDetector" in window){
+      const have = await window.BarcodeDetector.getSupportedFormats();
+      const f = VIN_FORMATS.filter(x => have.includes(x));
+      if (f.includes("code_39")) nativeDet = new window.BarcodeDetector({ formats: f });
     }
+  }catch(e){ nativeDet = null; }
+  return nativeDet;
+}
+// Draw part of an image/video onto a canvas, tilted by `deg`, and try to read a VIN from it.
+// crop = [x, y, w, h] as fractions of the source. Door-jamb barcodes are rarely perfectly level,
+// and the 1D reader needs the bars roughly straight up and down, so callers try a few tilts.
+const vinCv = document.createElement("canvas");
+function vinTry(Z, src, sw, sh, crop, maxPx, deg, glob){
+  const [fx, fy, fw, fh] = crop, cw = sw * fw, ch = sh * fh;
+  const sc = Math.min(1, maxPx / Math.max(cw, ch)), w = Math.round(cw * sc), h = Math.round(ch * sc);
+  const rad = deg * Math.PI / 180, c = Math.abs(Math.cos(rad)), si = Math.abs(Math.sin(rad));
+  vinCv.width = Math.round(w * c + h * si); vinCv.height = Math.round(w * si + h * c);
+  const cx = vinCv.getContext("2d", { willReadFrequently: true });
+  cx.setTransform(1, 0, 0, 1, 0, 0); cx.fillStyle = "#fff"; cx.fillRect(0, 0, vinCv.width, vinCv.height);
+  cx.translate(vinCv.width / 2, vinCv.height / 2); cx.rotate(rad);
+  cx.drawImage(src, sw * fx, sh * fy, cw, ch, -w / 2, -h / 2, w, h);
+  try{
+    const r = zxReader(Z).decode(new Z.BinaryBitmap(new (glob ? Z.GlobalHistogramBinarizer : Z.HybridBinarizer)(new Z.HTMLCanvasElementLuminanceSource(vinCv))));
+    return cleanVin(r.getText());
+  }catch(e){ return null; }
+}
+async function vinNative(src){
+  const det = await nativeDetector(); if (!det) return null;
+  try{ for (const c of await det.detect(src)){ const v = cleanVin(c.rawValue); if (v) return v; } }catch(e){}
+  return null;
+}
+async function readVinPhoto(file){
+  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
+  const nv = await vinNative(img); if (nv) return nv;
+  const Z = await loadBarcodeLib();
+  const W = img.naturalWidth, H = img.naturalHeight, FULL = [0, 0, 1, 1], MID = [0.15, 0.2, 0.7, 0.6];
+  const tries = [
+    [FULL, 1600, 0], [FULL, 1600, 90], [MID, 1800, 0], [MID, 1800, 90],
+    [FULL, 1600, -5], [FULL, 1600, 5], [MID, 1800, -5], [MID, 1800, 5],
+    [FULL, 1600, -10], [FULL, 1600, 10], [MID, 1800, -10], [MID, 1800, 10],
+    [FULL, 1600, 85], [FULL, 1600, 95], [MID, 1800, 85], [MID, 1800, 95],
+    [FULL, 1600, 80], [FULL, 1600, 100], [MID, 1800, 80], [MID, 1800, 100],
+    [FULL, 2600, 0], [MID, 2600, 0], [FULL, 1000, 0], [MID, 1800, -15], [MID, 1800, 15],
+    [MID, 1800, 0, true], [MID, 1800, 90, true], [FULL, 1600, 0, true], [FULL, 1600, 90, true]
+  ];
+  for (let i = 0; i < tries.length; i++){
+    const v = vinTry(Z, img, W, H, ...tries[i]); if (v) return v;
+    if (i % 3 === 2) await new Promise(r => setTimeout(r, 0));   // let the "Reading…" message paint
   }
   return null;
 }
@@ -1107,6 +1160,119 @@ document.addEventListener("keydown", e => {
   const i = fields.indexOf(f);
   if (i >= 0 && i < fields.length - 1){ e.preventDefault(); fields[i + 1].focus(); }
 });
+async function usedGotVin(form, vin){
+  const msg = $("#uScanMsg");
+  form.vin.value = vin; vinTyped = vin;
+  if (msg) msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
+  const d = await lookupVin(vin);
+  if (!form.isConnected) return;
+  if (d && (d.make || d.model)){
+    ["year","make","model"].forEach(k => { if (!form[k].value.trim() && d[k]) form[k].value = d[k]; });
+    if (msg) msg.textContent = "Filled in from VIN " + vin + ". Check it, then add the stock number.";
+  } else if (msg) msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model.";
+  if (!form.stock.value.trim()) setTimeout(() => form.stock.focus(), 50);
+}
+/* --- Live camera scanner: aim at the door-jamb barcode, it reads on its own --- */
+const SC = { stream: null, timer: null, form: null, n: 0, torch: false };
+function scanStop(){
+  clearTimeout(SC.timer); SC.timer = null;
+  if (SC.stream){ SC.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); SC.stream = null; }
+  const r = document.getElementById("scanRoot"); if (r) r.remove();
+}
+function scanUI(status, live){
+  let r = document.getElementById("scanRoot");
+  if (!r){
+    r = document.createElement("div"); r.id = "scanRoot"; r.className = "scan";
+    r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-box"><i></i></div>' +
+      '<div class="scan-top"><b>Scan VIN barcode</b><span id="scanStatus"></span></div>' +
+      '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">Cancel</button>' +
+      '<button class="btn hidden" type="button" data-scan="torch">🔦 Light</button>' +
+      '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div>';
+    document.body.appendChild(r);
+  }
+  r.classList.toggle("live", !!live);
+  $("#scanStatus").textContent = status;
+  return r;
+}
+async function scanOpen(form){
+  SC.form = form; SC.n = 0; SC.torch = false;
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia){ $("#uScanFile")?.click(); return; }   // no live camera here: straight to photo
+  const r = scanUI("Starting camera…", false);
+  loadBarcodeLib().catch(() => {});
+  try{
+    SC.stream = await md.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+  }catch(e){
+    console.warn("Scan camera:", e);
+    scanUI(e && e.name === "NotAllowedError" ? "Camera is blocked for this site. Allow it in your browser settings, or tap Take photo." : "Couldn’t start the camera. Tap Take photo instead.", false);
+    return;
+  }
+  if (!document.getElementById("scanRoot")){ scanStop(); return; }   // closed while asking
+  const v = r.querySelector("video"); v.srcObject = SC.stream;
+  try{ await v.play(); }catch(e){}
+  const track = SC.stream.getVideoTracks()[0];
+  try{ const cap = track.getCapabilities ? track.getCapabilities() : {};
+    if (cap.focusMode && cap.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
+    if (cap.torch) r.querySelector('[data-scan="torch"]').classList.remove("hidden");
+  }catch(e){}
+  scanUI("Fill the box with the barcode. Hold steady.", true);
+  scanLoop(v);
+}
+// The video is shown "cover"-style, so map the on-screen box back to camera pixels.
+function scanCrop(v){
+  try{
+    const box = document.querySelector("#scanRoot .scan-box").getBoundingClientRect(), vr = v.getBoundingClientRect();
+    const vw = v.videoWidth, vh = v.videoHeight, sc = Math.max(vr.width / vw, vr.height / vh);
+    const ox = (vr.width - vw * sc) / 2 + vr.left, oy = (vr.height - vh * sc) / 2 + vr.top;
+    const mx = box.width * 0.08, my = box.height * 0.15;
+    let x = (box.left - mx - ox) / sc / vw, y = (box.top - my - oy) / sc / vh, w = (box.width + 2 * mx) / sc / vw, h = (box.height + 2 * my) / sc / vh;
+    x = Math.max(0, x); y = Math.max(0, y); w = Math.min(1 - x, w); h = Math.min(1 - y, h);
+    return w > 0.05 && h > 0.05 ? [x, y, w, h] : [0, 0, 1, 1];
+  }catch(e){ return [0, 0, 1, 1]; }
+}
+// One attempt per frame. The ZXing reader cycles through a few tilts, since door-jamb labels are rarely level.
+const SCAN_TILTS = [0, -6, 6, 90, -12, 12, 0, 84, 96];
+async function scanLoop(v){
+  if (!SC.stream) return;
+  let vin = null;
+  try{
+    if (v.readyState >= 2 && v.videoWidth){
+      vin = await vinNative(v);
+      if (!vin && window.ZXing){
+        const k = SC.n++ % SCAN_TILTS.length, deg = SCAN_TILTS[k];
+        const c = scanCrop(v);   // what's inside the box on screen (plus a margin)...
+        const crop = SC.n % 2 ? c : [0, c[1], 1, c[3]];   // ...and every other frame the full width of that band
+        vin = vinTry(window.ZXing, v, v.videoWidth, v.videoHeight, crop, 1920, deg, k === 6);
+      }
+    }
+  }catch(e){}
+  if (!SC.stream) return;
+  if (vin){
+    try{ navigator.vibrate && navigator.vibrate(120); }catch(e){}
+    scanBeep();
+    const form = SC.form; scanStop();
+    if (form && form.isConnected) usedGotVin(form, vin);
+    return;
+  }
+  if (SC.n === 60) scanUI("Still looking… move a little closer or farther, and turn on the light if it’s dark.", true);
+  SC.timer = setTimeout(() => scanLoop(v), 60);
+}
+function scanBeep(){
+  try{ const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = 1400; g.gain.value = 0.08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 0.12); setTimeout(() => a.close(), 400);
+  }catch(e){}
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-scan]"); if (!b) return;
+  const k = b.dataset.scan;
+  if (k === "cancel"){ scanStop(); return; }
+  if (k === "photo"){ const form = SC.form; scanStop(); (form && form.isConnected ? form.querySelector("#uScanFile") : $("#uScanFile"))?.click(); return; }
+  if (k === "torch" && SC.stream){
+    SC.torch = !SC.torch;
+    try{ await SC.stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: SC.torch }] }); b.setAttribute("aria-pressed", String(SC.torch)); }catch(err){ SC.torch = false; }
+  }
+});
+document.addEventListener("visibilitychange", () => { if (document.hidden && SC.stream) scanStop(); });
 document.addEventListener("change", async e => {
   const f = e.target; if (f.id !== "uScanFile" || !f.files || !f.files[0]) return;
   const form = f.closest("form"), msg = $("#uScanMsg"), file = f.files[0]; f.value = "";
@@ -1115,13 +1281,7 @@ document.addEventListener("change", async e => {
     const vin = await readVinPhoto(file);
     if (!form.isConnected) return;
     if (!vin){ msg.innerHTML = '<span class="err-msg">Couldn’t find a VIN barcode in that photo. Try closer and straight on, or type the last 8.</span>'; return; }
-    form.vin.value = vin; msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
-    const d = await lookupVin(vin);
-    if (!form.isConnected) return;
-    if (d && (d.make || d.model)){
-      ["year","make","model"].forEach(k => { if (!form[k].value.trim() && d[k]) form[k].value = d[k]; });
-      msg.textContent = "Filled in from VIN " + vin + ". Check it, then add the stock number.";
-    } else msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model.";
+    await usedGotVin(form, vin);
   }catch(err){ console.warn("Used cars scan:", err); if (form.isConnected) msg.innerHTML = '<span class="err-msg">Couldn’t read the photo. Type the last 8 of the VIN instead.</span>'; }
 });
 document.addEventListener("change", async e => {
@@ -1152,7 +1312,7 @@ document.addEventListener("click", async e => {
     if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
     if (a === "u-open"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-filter"){ U.filter = t.dataset.f; render(true); return; }
-    if (a === "u-scan"){ $("#uScanFile")?.click(); loadBarcodeLib().catch(() => {}); return; }
+    if (a === "u-scan"){ const form = t.closest("form"); if (form) scanOpen(form); else $("#uScanFile")?.click(); return; }
     if (a === "u-edit"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "edit", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-color"){
       const form = t.closest("form"); if (!form) return;
@@ -1266,7 +1426,7 @@ document.addEventListener("submit", async e => {
     U.busy = false;
   }catch(e3){ U.busy = false; console.warn("Used cars:", e3); }
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && U.modal){ usedClose(); e.stopImmediatePropagation(); } });
+document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (SC.stream || document.getElementById("scanRoot")){ scanStop(); e.stopImmediatePropagation(); return; } if (U.modal){ usedClose(); e.stopImmediatePropagation(); } });
 /* ================= end used cars ================= */
 
 /* ---------- sound ---------- */
@@ -1365,38 +1525,60 @@ function renderMain(){
   if (S.view === "add") wireAdd();
   if (S.view === "board") fitTV();
 }
-/* TV can't scroll: in each column, hide cards that would be cut off and show "+N more" instead. */
+/* TV can't be scrolled or tapped, so every car stays on screen:
+   1) shrink the whole area evenly until the fullest column fits (down to a readable minimum),
+   2) if a column still doesn't fit, it flips through pages by itself every few seconds. */
+const TV_PAGE_MS = 8000;
+function fitArea(wrap, avail, minZ){
+  if (!wrap || avail < 40) return;
+  const cols = [...wrap.children];
+  const list = c => c.querySelector(".col, .u-list");
+  wrap.style.transform = ""; wrap.style.width = ""; wrap.style.transformOrigin = "0 0";
+  cols.forEach(c => { c.style.position = "relative"; const l = list(c); if (l){ l.style.height = ""; l.style.overflow = ""; l.style.position = "relative"; l.scrollTop = 0; } const p = c.querySelector(".tv-page"); if (p) p.remove(); });
+  const need = () => Math.max(...cols.map(c => c.offsetHeight));
+  let z = 1;
+  for (z = 1; z > minZ; z = Math.round((z - 0.04) * 100) / 100){
+    wrap.style.width = (100 / z) + "%"; wrap.style.transform = z < 1 ? "scale(" + z + ")" : "";
+    if (need() * z <= avail) break;
+  }
+  if (z <= minZ){ z = minZ; wrap.style.width = (100 / z) + "%"; wrap.style.transform = "scale(" + z + ")"; }
+  const room = avail / z;
+  cols.forEach(c => {
+    const l = list(c); if (!l || c.offsetHeight <= room) return;
+    const vis = room - l.offsetTop;   // l is inside c; c's top is the column top
+    if (vis < 40) return;
+    // page breaks fall between cards, never through one
+    const starts = [0], ends = []; let start = 0, end = 0;
+    [...l.children].forEach(el => { const t = el.offsetTop, b = t + el.offsetHeight; if (b - start > vis && t > start){ ends.push(end); start = t; starts.push(t); } end = b; });
+    ends.push(end);
+    const pg = Math.floor(Date.now() / TV_PAGE_MS) % starts.length;
+    // the list shows exactly this page's cards: it ends at the last whole card, never mid-card
+    l.style.overflow = "hidden"; l.style.height = (ends[pg] - starts[pg]) + "px"; l.scrollTop = starts[pg];
+    const head = c.querySelector(".col-head, .u-head");
+    if (head){ const tag = document.createElement("span"); tag.className = "tv-page"; tag.textContent = "Page " + (pg + 1) + " of " + starts.length; head.querySelector("h3").after(tag); }
+  });
+}
 function fitTV(){
   try{
-    if (!S.tv) return;
-    const fit = (col, items, limit) => {
-      if (!col || !items.length) return;
-      let hidden = 0, mini = false;
-      const more = document.createElement("div"); more.className = "col-more"; more.textContent = "+1 more";
-      col.appendChild(more); const mh = more.offsetHeight + 8; more.remove();
-      for (let i = 0; i < items.length; i++){
-        const last = i === items.length - 1, room = limit - (last ? 0 : mh), el = items[i];
-        if (!hidden && !mini && el.getBoundingClientRect().bottom <= room) continue;
-        // full card doesn't fit: from here on, use the one-line version if there is one
-        const m = el.nextElementSibling && el.nextElementSibling.classList.contains("card-mini") ? el.nextElementSibling : null;
-        el.classList.add("fit-hide");
-        if (m && !hidden){ mini = true; m.classList.add("show"); if (m.getBoundingClientRect().bottom <= room) continue; m.classList.remove("show"); }
-        hidden++;
-      }
-      if (hidden){
-        const ids = items.filter(x => x.classList.contains("fit-hide") && !(x.nextElementSibling && x.nextElementSibling.classList.contains("show"))).map(x => (x.querySelector(".stock") || {}).textContent).filter(Boolean);
-        more.textContent = "+" + hidden + " more" + (ids.length ? ": " + ids.slice(0, 4).join(", ") + (ids.length > 4 ? "…" : "") : "");
-        col.appendChild(more);
-      }
-    };
+    if (!S.tv || S.view !== "board") return;
     const vh = window.innerHeight;
-    const main = document.querySelector("#main .board-main");
-    const mainBottom = Math.min(vh, main ? main.getBoundingClientRect().bottom : vh) - 6;
-    document.querySelectorAll("#main .board-cols .col").forEach(c => fit(c, [...c.querySelectorAll(":scope > .card")], mainBottom));
-    const strip = document.querySelector("#main .used-strip");
-    if (strip){ const sb = Math.min(vh, strip.getBoundingClientRect().bottom) - 4; strip.querySelectorAll(".u-col").forEach(c => fit(c, [...c.querySelectorAll(":scope > .u-item")], sb)); }
+    const cols = document.querySelector("#main .board-cols"), main = document.querySelector("#main .board-main");
+    if (cols){
+      cols.style.transform = ""; cols.style.width = "";
+      const bottom = Math.min(vh, main ? main.getBoundingClientRect().bottom : vh) - 6;
+      fitArea(cols, bottom - cols.getBoundingClientRect().top, 0.75);
+    }
+    const grid = document.querySelector("#main .used-grid");
+    if (grid){
+      const strip = grid.parentElement; grid.style.transform = ""; grid.style.width = "";
+      const sb = Math.min(vh, strip.getBoundingClientRect().bottom) - 4;
+      fitArea(grid, sb - grid.getBoundingClientRect().top, 0.75);
+    }
   }catch(e){ console.warn("TV fit:", e); }
 }
+// flip pages on time (no full redraw needed)
+let tvPage = -1;
+setInterval(() => { const p = Math.floor(Date.now() / TV_PAGE_MS); if (p !== tvPage){ tvPage = p; if (S.tv && S.view === "board" && document.querySelector("#main .tv-page")) fitTV(); } }, 500);
 let fitTimer = null;
 window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { if (S.view === "board" && S.tv) renderMain(); }, 200); });
 
@@ -1611,10 +1793,7 @@ function viewBoard(){
       '<div><dt>On board</dt><dd>' + esc(fmtDur(now - j.createdAt)) + '</dd></div></dl>' +
       (j.products && j.products.length ? '<div class="prods">' + j.products.map(p => '<span class="prod">' + esc(p) + '</span>').join("") + '</div>' : "") +
       (j.notes ? '<div class="vcolor" style="margin-top:8px;font-size:16px">Note: ' + esc(j.notes) + '</div>' : "") +
-      '</button>' +
-      // one-line version, only shown on the TV when the full card doesn't fit
-      (S.tv ? '<button class="card-mini u-' + u + '" data-action="open" data-id="' + esc(j.id) + '"><span class="u-stock">#' + esc(j.stock) + '</span><span class="u-veh">' + esc(vehicle(j)) + '</span>' +
-        (j.status === "ready" ? '<span class="u-time">ready ' + esc(fmtDur(now - (j.readyAt || now))) + '</span>' : '<span class="u-time ' + dueCls + '">' + esc(dueText(j, now)) + '</span>') + '</button>' : "");
+      '</button>';
   };
   const inner = '<div class="board-head">' + (S.tv ? '<div class="board-logo">' + logoHTML(true) + '</div>' : "") +
     '<h2>' + esc(title) + '</h2><span class="clock">' + esc(new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})) + '</span>' +
