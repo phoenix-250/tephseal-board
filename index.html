@@ -270,6 +270,50 @@ body.tv .board{ overflow:hidden; }
 .u-head .tv-page{ margin-left:8px; }
 .col-head h3, .u-head h3{ display:inline; }
 .col-head > h3 + .tv-page, .u-head > h3 + .tv-page{ margin-right:auto; }
+/* View store */
+.vs-toggles{ display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 6px; align-items:center; }
+.vs-sw{ display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--surface); border-radius:999px; padding:6px 14px 6px 8px; font-weight:600; min-height:42px; color:var(--muted); }
+.vs-sw i{ width:34px; height:20px; border-radius:999px; background:var(--line); position:relative; transition:background .15s; flex:none; }
+.vs-sw i::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.3); }
+.vs-sw[aria-checked="true"]{ color:var(--ink); }
+.vs-sw[aria-checked="true"] i{ background:var(--ok); } .vs-sw[aria-checked="true"] i::after{ left:16px; }
+.vs-link{ border:0; background:none; color:var(--brand); font-weight:700; padding:8px; }
+.vs-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:12px 0; }
+.vs-stat{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:grid; gap:2px; }
+.vs-stat b{ font-family:var(--cond); font-size:40px; line-height:1; } .vs-stat span{ color:var(--muted); font-weight:600; font-size:14px; }
+.vs-stat.ok b{ color:var(--ok); } .vs-stat.ready b{ color:var(--ready); } .vs-stat.bad b{ color:var(--bad); }
+.vs-stats.small .vs-stat{ padding:10px 12px; } .vs-stats.small .vs-stat b{ font-size:28px; }
+.vs-sec{ margin-top:14px; } .vs-sec h3{ font-size:22px; margin:0 0 12px; display:flex; align-items:center; gap:10px; }
+.vs-count{ font-family:var(--cond); background:var(--chip); border-radius:999px; padding:0 12px; font-size:20px; }
+.vs-cols{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; } @media (max-width:820px){ .vs-cols{ grid-template-columns:1fr; } }
+.vs-col{ display:grid; gap:8px; align-content:start; } .vs-col-h{ display:flex; justify-content:space-between; align-items:center; } .vs-col-h b{ font-family:var(--cond); font-size:24px; color:var(--muted); }
+.vs-list{ display:grid; gap:8px; }
+.vs-item{ display:flex; justify-content:space-between; gap:12px; align-items:center; background:var(--bg); border-radius:10px; padding:10px 12px; border-left:5px solid var(--line); }
+.vs-item.u-ok{ border-left-color:var(--ok); } .vs-item.u-warn{ border-left-color:var(--warn); } .vs-item.u-bad{ border-left-color:var(--bad); } .vs-item.u-ready{ border-left-color:var(--ready); } .vs-item.u-delivered{ border-left-color:var(--ok); }
+.vs-sub{ font-size:13px; } .vs-none{ padding:8px 4px; }
+.vs-when{ text-align:right; display:grid; font-weight:700; white-space:nowrap; } .vs-when small{ font-weight:600; color:var(--muted); }
+.vs-bad{ color:var(--bad); } .vs-warn{ color:var(--warn); } .vs-ok{ color:var(--ready); }
+.vs-bars{ display:flex; gap:8px; align-items:flex-end; height:170px; }
+.vs-bar{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:4px; min-width:0; }
+.vs-bar i{ width:100%; max-width:56px; background:var(--brand); border-radius:6px 6px 2px 2px; opacity:.8; }
+.vs-bar.now i{ opacity:1; background:var(--ok); } .vs-bar.future i{ background:var(--line); }
+.vs-bar b{ font-family:var(--cond); font-size:20px; } .vs-bar span{ font-size:12px; color:var(--muted); font-weight:600; white-space:nowrap; }
+.vs-split{ display:grid; grid-template-columns:1fr 1fr; gap:24px; } @media (max-width:700px){ .vs-split{ grid-template-columns:1fr; } }
+.vs-prods{ display:grid; gap:8px; } .vs-prods div{ display:grid; grid-template-columns:1fr auto; gap:2px 8px; font-weight:600; }
+.vs-prods i{ grid-column:1 / -1; height:8px; border-radius:4px; background:var(--brand); opacity:.75; }
+.vs-table{ display:grid; gap:6px; margin-top:6px; }
+.vs-tr{ display:grid; grid-template-columns:1.1fr 1.8fr 1.2fr 1fr 1.1fr; gap:10px; align-items:center; background:var(--bg); border-radius:10px; padding:10px 12px; }
+.vs-tr > span{ display:grid; min-width:0; } .vs-tr .pill{ justify-self:start; } .vs-tr small{ font-size:12px; }
+.vs-th{ background:none; padding:0 12px; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.vs-time b{ font-family:var(--cond); font-size:22px; }
+@media (max-width:640px){ .vs-tr{ grid-template-columns:1fr 1fr; } .vs-th{ display:none; } }
+.vs-rank{ list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.vs-rank li{ display:grid; grid-template-columns:36px minmax(90px,1.2fr) 2fr 40px auto; gap:10px; align-items:center; background:var(--bg); border-radius:10px; padding:8px 12px; }
+.vs-place{ width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font-weight:800; background:var(--chip); }
+.vs-place.p1{ background:#E8B923; color:#3a2c00; } .vs-place.p2{ background:#C7CED6; color:#1d2530; } .vs-place.p3{ background:#C98A55; color:#2d1606; }
+.vs-name{ font-weight:700; } .vs-meter{ height:10px; background:var(--chip); border-radius:5px; overflow:hidden; } .vs-meter i{ display:block; height:100%; background:var(--brand); }
+.vs-rank b{ font-family:var(--cond); font-size:24px; text-align:right; }
+@media (max-width:560px){ .vs-rank li{ grid-template-columns:32px 1fr 36px; } .vs-rank .vs-meter, .vs-rank li > .vs-sub{ display:none; } }
 /* used-car form */
 .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .chip{ min-height:40px; padding:6px 14px; border:2px solid var(--line); background:var(--surface); border-radius:999px; font-weight:600; }
@@ -344,12 +388,12 @@ const DEFAULT_PRODUCTS = ["Paint protection","Interior protection","Ceramic coat
 const MAKES = ["Acura","Audi","BMW","Buick","Cadillac","Chevrolet","Chrysler","Dodge","Ford","Genesis","GMC","Honda","Hyundai","Infiniti","Jeep","Kia","Land Rover","Lexus","Lincoln","Mazda","Mercedes-Benz","Mitsubishi","Nissan","Porsche","Ram","Subaru","Tesla","Toyota","Volkswagen","Volvo"];
 const STATUS = { queued:"Waiting", working:"In progress", ready:"Ready", delivered:"Delivered" };
 const ROLES = {
-  sales:   { label:"Sales",         desc:"Salespeople and sales managers: add, edit and track units for your store.", tabs:["add","queue","board"] },
-  finance: { label:"Finance",       desc:"Add the protection products you sold.",            tabs:["queue","add"] },
+  sales:   { label:"Sales",         desc:"Salespeople and sales managers: add, edit and track units for your store.", tabs:["add","queue","board","view"] },
+  finance: { label:"Finance",       desc:"Add the protection products you sold.",            tabs:["queue","add","view"] },
   shop:    { label:"Detail shop",   desc:"The big screen and status updates for detailers.",  tabs:["board","queue"] },
-  area:    { label:"Area manager",  desc:"All stores at a glance, plus setup.",               tabs:["stores","board","queue","add","settings"] }
+  area:    { label:"Area manager",  desc:"All stores at a glance, plus setup.",               tabs:["stores","board","view","queue","add","settings"] }
 };
-const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup", used:"Used cars" };
+const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup", used:"Used cars", view:"View store" };
 const FORM_VIEWS = new Set(["add","settings"]);
 const perms = r => ({
   status:  ["shop","area"].includes(r),   // detail steps: shop + area manager only
@@ -1614,7 +1658,7 @@ function renderMain(){
     if (stores().length === 1){ S.store = stores()[0].id; LS.set("store", S.store); setUnlock(S.store); renderShell(); }
     else { m.dataset.view = "gate"; return m.innerHTML = viewPickStore(); }
   }
-  const v = { add:viewAdd, queue:viewQueue, board:viewBoard, stores:viewStores, settings:viewSettings, used:viewUsed }[S.view];
+  const v = { add:viewAdd, queue:viewQueue, board:viewBoard, stores:viewStores, settings:viewSettings, used:viewUsed, view:viewStore }[S.view];
   m.innerHTML = v();
   if (S.view === "add") wireAdd();
   if (S.view === "board") fitTV();
@@ -1769,7 +1813,7 @@ function viewAdd(){
     '<label class="field"><span>Color</span><input class="input" name="color" placeholder="e.g. Silver"></label>' +
     '<label class="field"><span>Salesperson <em>*</em></span><input class="input" name="salesperson" value="' + esc(S.role === "sales" ? S.me : "") + '" autocomplete="name"></label>' +
     '<div class="field"><span>When does it need to be ready? <em>*</em></span><div class="chips">' +
-      duePresets().map(([v, l]) => '<label class="chip-opt"><input type="radio" name="due" value="' + v + '"' + (v === "120" ? " checked" : "") + '><span>' + l + '</span></label>').join("") +
+      duePresets().map(([v, l]) => '<label class="chip-opt"><input type="radio" name="due" value="' + v + '"' + (v === "60" ? " checked" : "") + '><span>' + l + '</span></label>').join("") +
       '</div><input class="input hidden" type="datetime-local" name="dueCustom" aria-label="Ready by"></div>' +
     '<div class="field"><span>Flags</span><div class="toggle-row">' +
       '<label class="chip-opt"><input type="checkbox" name="waiting"><span>Customer is here waiting</span></label>' +
@@ -1866,6 +1910,98 @@ function nextStep(j){
   if (j.status === "working" && p.status) return { to:"ready", label:"Mark ready" };
   if (j.status === "ready" && p.deliver) return { to:"delivered", label:"Delivered" };
   return null;
+}
+
+/* --- View store: a read-only picture of the store for the dealership --- */
+const VS_SECTIONS = [["now","Right now"],["today","Today"],["week","This week"],["month","This month"],["used","Used cars"],["rank","Salesperson ranking"]];
+function vsPrefs(){ const d = { now:true, today:true, week:true, month:true, used:true, rank:false }; return Object.assign(d, LS.get("viewSecs", {}) || {}); }
+function weekStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); }   // Monday
+function monthStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(1); return d.getTime(); }
+function viewStore(){
+  const now = Date.now(), all = byStore(S.store), v = vsPrefs();
+  const delivered = all.filter(j => j.status === "delivered" && j.deliveredAt);
+  const t0 = new Date(); t0.setHours(0,0,0,0);
+  const today = delivered.filter(j => j.deliveredAt >= t0.getTime()), week = delivered.filter(j => j.deliveredAt >= weekStart()), month = delivered.filter(j => j.deliveredAt >= monthStart());
+  const open = all.filter(j => j.status !== "delivered");
+  const multi = S.store === "*";
+  const title = multi ? "All stores" : storeName(S.store);
+  const veh = j => '<b>' + esc(vehicle(j)) + '</b>' + (j.color ? ' <span class="muted">' + esc(j.color) + '</span>' : "");
+  const sub = j => '#' + esc(j.stock) + (j.salesperson ? ' · ' + esc(j.salesperson) : "") + (multi ? ' · ' + esc(storeName(j.store)) : "");
+  const sec = (k, head, body) => v[k] ? '<section class="vs-sec panel"><h3>' + head + '</h3>' + body + '</section>' : "";
+
+  // stat strip
+  const stat = (n, l, cls) => '<div class="vs-stat' + (cls ? " " + cls : "") + '"><b>' + n + '</b><span>' + l + '</span></div>';
+  let h = '<div class="row"><h2>' + esc(title) + '</h2><span class="spacer"></span><span class="muted">' + esc(new Date().toLocaleDateString([], { weekday:"long", month:"short", day:"numeric" })) + '</span></div>';
+  h += '<div class="vs-toggles" role="group" aria-label="Show or hide sections">' + VS_SECTIONS.map(([k, l]) =>
+      '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"><i></i>' + l + '</button>').join("") +
+    '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div>';
+  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="empty panel"><h3>Everything is hidden</h3><p>Turn a section back on above.</p></div>';
+  h += '<div class="vs-stats">' +
+    (v.now ? stat(open.length, "In the shop now") + stat(open.filter(j => j.status === "ready").length, "Ready for delivery", "ready") : "") +
+    (v.today ? stat(today.length, "Delivered today", "ok") : "") + (v.week ? stat(week.length, "This week") : "") + (v.month ? stat(month.length, "This month") : "") + '</div>';
+
+  // right now
+  const nowCols = [["queued","Waiting"],["working","In progress"],["ready","Ready for delivery"]].map(([st, l]) => {
+    const list = sortJobs(open.filter(j => j.status === st));
+    return '<div class="vs-col"><div class="vs-col-h"><span class="pill ' + st + '">' + l + '</span><b>' + list.length + '</b></div>' +
+      (list.length ? list.map(j => { const u = urgency(j, now);
+        return '<div class="vs-item u-' + u + '"><div>' + veh(j) + '<div class="muted vs-sub">' + sub(j) + '</div></div><div class="vs-when">' +
+          (st === "ready" ? '<span class="vs-ok">Ready ' + esc(fmtDur(now - (j.readyAt || now))) + '</span>' : '<span class="' + (u === "bad" ? "vs-bad" : u === "warn" ? "vs-warn" : "") + '">Due ' + esc(fmtTime(j.dueAt)) + '</span><small>' + esc(dueText(j, now)) + '</small>') + '</div></div>'; }).join("")
+        : '<div class="muted vs-none">None</div>') + '</div>';
+  }).join("");
+  h += sec("now", "Right now", '<div class="vs-cols">' + nowCols + '</div>');
+
+  // today
+  h += sec("today", "Delivered today <span class=\"vs-count\">" + today.length + "</span>", today.length ? '<div class="vs-list">' + today.slice().sort((a, b) => b.deliveredAt - a.deliveredAt).map(j =>
+    '<div class="vs-item u-delivered"><div>' + veh(j) + '<div class="muted vs-sub">' + sub(j) + (j.products && j.products.length ? ' · ' + esc(j.products.join(", ")) : "") + '</div></div><div class="vs-when"><span>' + esc(new Date(j.deliveredAt).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })) + '</span></div></div>').join("") + '</div>'
+    : '<p class="muted">No deliveries yet today.</p>');
+
+  // week: a bar per day, Monday to Sunday
+  const days = [...Array(7)].map((_, i) => { const a = weekStart() + i * DAY; return { l: new Date(a).toLocaleDateString([], { weekday:"short" }), n: week.filter(j => j.deliveredAt >= a && j.deliveredAt < a + DAY).length, today: a === t0.getTime(), future: a > t0.getTime() }; });
+  const bars = (list, max) => '<div class="vs-bars">' + list.map(d => '<div class="vs-bar' + (d.today ? " now" : "") + (d.future ? " future" : "") + '"><b>' + (d.future ? "" : d.n) + '</b><i style="height:' + (max ? Math.max(d.n ? 6 : 2, Math.round(d.n / max * 100)) : 2) + '%"></i><span>' + d.l + '</span></div>').join("") + '</div>';
+  const wmax = Math.max(1, ...days.map(d => d.n));
+  h += sec("week", "This week <span class=\"vs-count\">" + week.length + "</span>", bars(days, wmax));
+
+  // month: a bar per week + top products
+  const ms = monthStart(), wks = [];
+  const me = new Date(new Date(ms).getFullYear(), new Date(ms).getMonth() + 1, 1).getTime();
+  for (let a = ms; a <= now && a < me;){
+    const x = new Date(a); x.setDate(x.getDate() + (7 - ((x.getDay() + 6) % 7))); x.setHours(0,0,0,0);   // next Monday
+    const e = Math.min(x.getTime(), me);
+    wks.push({ l: new Date(a).toLocaleDateString([], { month:"short", day:"numeric" }), n: month.filter(j => j.deliveredAt >= a && j.deliveredAt < e).length, today: now >= a && now < e });
+    a = e;
+  }
+  const prodCount = {}; month.forEach(j => (j.products || []).forEach(p => prodCount[p] = (prodCount[p] || 0) + 1));
+  const prods = Object.entries(prodCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  h += sec("month", "This month <span class=\"vs-count\">" + month.length + "</span>", '<div class="vs-split"><div><div class="muted vs-sub" style="margin-bottom:6px">Deliveries by week</div>' + bars(wks, Math.max(1, ...wks.map(w => w.n))) + '</div>' +
+    '<div><div class="muted vs-sub" style="margin-bottom:6px">Top products</div>' + (prods.length ? '<div class="vs-prods">' + prods.map(([p, n]) => '<div><span>' + esc(p) + '</span><b>' + n + '</b><i style="width:' + Math.round(n / prods[0][1] * 100) + '%"></i></div>').join("") + '</div>' : '<p class="muted">No products recorded yet.</p>') + '</div></div>');
+
+  // used cars (only when switched on for this store)
+  if (v.used && uSafe(() => usedOn(S.store) && U.loaded, false)){
+    const ul = uSafe(() => usedFor(S.store), []), uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const ud = ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= weekStart());
+    const avg = ud.length ? fmtDur(ud.reduce((s2, u) => s2 + (u.doneAt - u.createdAt), 0) / ud.length) : "—";
+    h += sec("used", "Used cars in detail <span class=\"vs-count\">" + uo.length + "</span>",
+      '<div class="vs-stats small">' + stat(uo.filter(u => u.stage === "detail").length, "Waiting on detail") + stat(uo.filter(u => u.stage === "progress").length, "Being detailed") +
+        stat(uo.filter(u => usedClock(u, now).lvl === "bad").length, "Past 48 hours", "bad") + stat(ud.length, "Done this week", "ok") + stat(avg, "Avg time this week") + '</div>' +
+      (uo.length ? '<div class="vs-table"><div class="vs-tr vs-th"><span>Stock / VIN</span><span>Vehicle</span><span>Stage</span><span>Detailer</span><span>Time in detail</span></div>' + uo.map(u => { const c = usedClock(u, now);
+        return '<div class="vs-tr"><span><b>' + esc(u.stock || "—") + '</b>' + (u.vin ? '<small class="muted">VIN ' + esc(String(u.vin).slice(-8)) + '</small>' : "") + '</span><span><b>' + esc(usedVeh(u)) + '</b>' + (u.color ? '<small class="muted">' + esc(u.color) + '</small>' : "") + (multi ? '<small class="muted">' + esc(storeName(u.store)) + '</small>' : "") + '</span>' +
+          '<span><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></span><span>' + esc(u.detailer || "Not assigned") + '</span>' +
+          '<span class="vs-time u-c-' + c.lvl + '"><b>' + esc(fmtDur(c.age)) + '</b><small>' + esc(c.txt) + '</small></span></div>'; }).join("") + '</div>'
+        : '<p class="muted">No used cars in detail right now.</p>'));
+  }
+
+  // ranking (off unless switched on)
+  if (v.rank){
+    const per = LS.get("rankBy", "month"), src = per === "today" ? today : per === "week" ? week : month;
+    const tally = {}; src.forEach(j => { const n = (j.salesperson || "Unknown").trim(); tally[n] = tally[n] || { d: 0, p: 0 }; tally[n].d++; tally[n].p += (j.products || []).length; });
+    const rows = Object.entries(tally).sort((a, b) => b[1].d - a[1].d || b[1].p - a[1].p || a[0].localeCompare(b[0]));
+    const top = rows.length ? rows[0][1].d : 1;
+    h += sec("rank", "Salesperson ranking", '<div class="filters" role="group" aria-label="Period" style="margin-top:0">' + [["today","Today"],["week","This week"],["month","This month"]].map(([k, l]) => '<button class="filter" data-action="vs-rank" data-p="' + k + '" aria-pressed="' + (per === k) + '">' + l + '</button>').join("") + '</div>' +
+      (rows.length ? '<ol class="vs-rank">' + rows.map(([n, r], i) => '<li><span class="vs-place p' + (i + 1) + '">' + (i + 1) + '</span><span class="vs-name">' + esc(n) + '</span><span class="vs-meter"><i style="width:' + Math.round(r.d / top * 100) + '%"></i></span><b>' + r.d + '</b><span class="muted vs-sub">' + (r.d === 1 ? "delivery" : "deliveries") + (r.p ? " · " + r.p + (r.p === 1 ? " product" : " products") : "") + '</span></li>').join("") + '</ol>'
+        : '<p class="muted">No deliveries in this period yet.</p>'));
+  }
+  return h;
 }
 
 /* --- Shop board --- */
@@ -2032,6 +2168,9 @@ document.addEventListener("click", async e => {
     case "pick-store": setUnlock(t.dataset.store); render(true); break;
     case "tab": S.view = t.dataset.tab; S.addDone = null; render(true); window.scrollTo(0,0); break;
     case "filter": S.filter = t.dataset.f; render(true); break;
+    case "vs-toggle": { const k = t.dataset.k, v = vsPrefs(); v[k] = !v[k]; LS.set("viewSecs", v); render(true); break; }
+    case "vs-all": { const on = t.dataset.on === "1", v = {}; VS_SECTIONS.forEach(([k]) => v[k] = on); LS.set("viewSecs", v); render(true); break; }
+    case "vs-rank": LS.set("rankBy", t.dataset.p); render(true); break;
     case "open": openSheet(t.dataset.id, t.dataset.focus); break;
     case "close": closeSheet(); break;
     case "advance": { const j = job(); const n = j && nextStep(j); if (n) await setStatus(j, n.to); break; }
