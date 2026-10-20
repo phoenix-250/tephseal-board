@@ -277,6 +277,8 @@ body.tv .board{ overflow:hidden; }
 .vs-sw i::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(0,0,0,.3); }
 .vs-sw[aria-checked="true"]{ color:var(--ink); }
 .vs-sw[aria-checked="true"] i{ background:var(--ok); } .vs-sw[aria-checked="true"] i::after{ left:16px; }
+.vs-admin{ border:1px dashed var(--line); border-radius:14px; padding:10px 14px 4px; margin:12px 0 4px; }
+.vs-admin .vs-toggles{ margin:8px 0 6px; } .vs-note{ font-size:14px; } .vs-sw:disabled{ opacity:.6; }
 .vs-link{ border:0; background:none; color:var(--brand); font-weight:700; padding:8px; }
 .vs-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:12px 0; }
 .vs-stat{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:grid; gap:2px; }
@@ -930,6 +932,7 @@ function usedRedraw(){
 async function usedTick(){
   if (U.running) return; U.running = true;
   try{
+    await vsLoad();
     await usedLoadFlags();
     if (usedOn("*")){ await usedLoad(); usedListen(); }
   }catch(e){ console.warn("Used cars didn't load (board unaffected):", e); }
@@ -1914,7 +1917,32 @@ function nextStep(j){
 
 /* --- View store: a read-only picture of the store for the dealership --- */
 const VS_SECTIONS = [["now","Right now"],["today","Today"],["week","This week"],["month","This month"],["used","Used cars"],["rank","Salesperson ranking"]];
-function vsPrefs(){ const d = { now:true, today:true, week:true, month:true, used:true, rank:false }; return Object.assign(d, LS.get("viewSecs", {}) || {}); }
+// Layout is set per store by the area manager (feature_flags 'view:<storeId>:<section>'). Everyone else just sees it.
+const VSF = { flags: {}, sig: "" };
+function vsPrefs(store){
+  const d = { now:true, today:true, week:true, month:true, used:true, rank:false };
+  store = store || S.store;
+  if (store && store !== "*") Object.assign(d, VSF.flags[store] || {});
+  return d;
+}
+async function vsLoad(){
+  try{
+    if (!db) return;   // preview: switches live in memory
+    const { data, error } = await db.from("feature_flags").select("key,enabled").like("key", "view:%");
+    if (error) throw error;
+    const f = {};
+    data.forEach(r => { const [, st, k] = r.key.split(":"); if (st && k){ (f[st] = f[st] || {})[k] = !!r.enabled; } });
+    VSF.flags = f;
+  }catch(e){ /* keep last known layout; defaults if never loaded */ }
+  const sig = JSON.stringify(VSF.flags);
+  if (sig !== VSF.sig){ VSF.sig = sig; if (S.view === "view" && S.loaded) render(); }
+}
+async function vsSave(store, changes){
+  if (S.role !== "area" || !store || store === "*") return;
+  const now = new Date().toISOString();
+  if (db){ const { error } = await db.from("feature_flags").upsert(Object.entries(changes).map(([k, on]) => ({ key: "view:" + store + ":" + k, enabled: on, updated_at: now }))); if (error) throw error; }
+  VSF.flags[store] = Object.assign({}, VSF.flags[store] || {}, changes); VSF.sig = JSON.stringify(VSF.flags);
+}
 function weekStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); }   // Monday
 function monthStart(){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(1); return d.getTime(); }
 function viewStore(){
@@ -1932,10 +1960,13 @@ function viewStore(){
   // stat strip
   const stat = (n, l, cls) => '<div class="vs-stat' + (cls ? " " + cls : "") + '"><b>' + n + '</b><span>' + l + '</span></div>';
   let h = '<div class="row"><h2>' + esc(title) + '</h2><span class="spacer"></span><span class="muted">' + esc(new Date().toLocaleDateString([], { weekday:"long", month:"short", day:"numeric" })) + '</span></div>';
-  h += '<div class="vs-toggles" role="group" aria-label="Show or hide sections">' + VS_SECTIONS.map(([k, l]) =>
-      '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"><i></i>' + l + '</button>').join("") +
-    '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div>';
-  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="empty panel"><h3>Everything is hidden</h3><p>Turn a section back on above.</p></div>';
+  if (S.role === "area"){
+    if (multi) h += '<p class="muted vs-note">Pick a store at the top to change what its View store page shows.</p>';
+    else h += '<div class="vs-admin"><div class="vs-note"><b>Layout for ' + esc(title) + '</b> <span class="muted">Only area managers can change this. Everyone at this store sees it.</span></div><div class="vs-toggles" role="group" aria-label="Show or hide sections">' + VS_SECTIONS.map(([k, l]) =>
+      '<button class="vs-sw" data-action="vs-toggle" data-k="' + k + '" role="switch" aria-checked="' + !!v[k] + '"' + (S.vsBusy ? " disabled" : "") + '><i></i>' + l + '</button>').join("") +
+    '<button class="vs-link" data-action="vs-all" data-on="' + (VS_SECTIONS.every(([k]) => v[k]) ? "0" : "1") + '">' + (VS_SECTIONS.every(([k]) => v[k]) ? "Hide all" : "Show all") + '</button></div></div>';
+  }
+  if (!VS_SECTIONS.some(([k]) => v[k])) return h + '<div class="empty panel"><h3>Nothing to show yet</h3><p>' + (S.role === "area" ? "Turn a section back on above." : "Your area manager hasn’t turned on any sections for this store.") + '</p></div>';
   h += '<div class="vs-stats">' +
     (v.now ? stat(open.length, "In the shop now") + stat(open.filter(j => j.status === "ready").length, "Ready for delivery", "ready") : "") +
     (v.today ? stat(today.length, "Delivered today", "ok") : "") + (v.week ? stat(week.length, "This week") : "") + (v.month ? stat(month.length, "This month") : "") + '</div>';
@@ -2168,8 +2199,15 @@ document.addEventListener("click", async e => {
     case "pick-store": setUnlock(t.dataset.store); render(true); break;
     case "tab": S.view = t.dataset.tab; S.addDone = null; render(true); window.scrollTo(0,0); break;
     case "filter": S.filter = t.dataset.f; render(true); break;
-    case "vs-toggle": { const k = t.dataset.k, v = vsPrefs(); v[k] = !v[k]; LS.set("viewSecs", v); render(true); break; }
-    case "vs-all": { const on = t.dataset.on === "1", v = {}; VS_SECTIONS.forEach(([k]) => v[k] = on); LS.set("viewSecs", v); render(true); break; }
+    case "vs-toggle": case "vs-all": {
+      if (S.role !== "area" || !S.store || S.store === "*" || S.vsBusy) break;
+      const ch = {};
+      if (a === "vs-toggle") ch[t.dataset.k] = !vsPrefs()[t.dataset.k]; else VS_SECTIONS.forEach(([k]) => ch[k] = t.dataset.on === "1");
+      S.vsBusy = true;
+      try{ await vsSave(S.store, ch); toast("Layout updated for " + storeName(S.store)); }
+      catch(err){ toast("Couldn't change the layout. Nothing was changed. Try again.", true); }
+      S.vsBusy = false; render(true); break;
+    }
     case "vs-rank": LS.set("rankBy", t.dataset.p); render(true); break;
     case "open": openSheet(t.dataset.id, t.dataset.focus); break;
     case "close": closeSheet(); break;
