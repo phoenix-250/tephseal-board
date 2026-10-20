@@ -1210,7 +1210,7 @@ function usedFields(u, detStore, det, scanTop){
   const v = k => esc(u[k] || "");
   const col = String(u.color || "");
   return (scanTop ? '<div class="field"><button class="btn u-scanbig" type="button" data-action="u-scan">📷 Scan VIN barcode or QR code</button>' +
-      '<div id="uScanMsg" class="muted" style="font-size:14px">Door jamb barcode, windshield sticker, or any VIN QR code. Fills in VIN, year, make and model.</div></div>' : "") +
+      '<div id="uScanMsg" class="muted" style="font-size:14px">Door jamb barcode, windshield sticker, or any VIN QR code. Or just type everything in below.</div></div>' : "") +
     '<input type="file" accept="image/*" capture="environment" id="uScanFile" class="hidden">' +
     '<div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<label class="field"><span>Stock # <em>*</em></span><input class="input" name="stock" value="' + v("stock") + '" autocapitalize="characters" enterkeyhint="next" style="text-transform:uppercase" placeholder="U24519"></label>' +
@@ -1426,7 +1426,7 @@ function scanUI(status, live){
     r = document.createElement("div"); r.id = "scanRoot"; r.className = "scan";
     r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-box"><i></i></div>' +
       '<div class="scan-top"><b>Scan VIN barcode or QR code</b><span id="scanStatus"></span></div>' +
-      '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">Cancel</button>' +
+      '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">✎ Type it in</button>' +
       '<button class="btn hidden" type="button" data-scan="torch">🔦 Light</button>' +
       '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div>';
     document.body.appendChild(r);
@@ -1445,7 +1445,7 @@ async function scanOpen(form){
     SC.stream = await md.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
   }catch(e){
     console.warn("Scan camera:", e);
-    scanUI(e && e.name === "NotAllowedError" ? "Camera is blocked for this site. Allow it in your browser settings, or tap Take photo." : "Couldn’t start the camera. Tap Take photo instead.", false);
+    scanUI(e && e.name === "NotAllowedError" ? "Camera is blocked for this site. Tap Type it in, or allow the camera in your browser settings." : "Couldn’t start the camera. Tap Type it in or Take photo.", false);
     return;
   }
   if (!document.getElementById("scanRoot")){ scanStop(); return; }   // closed while asking
@@ -1495,7 +1495,7 @@ async function scanLoop(v){
     if (form && form.isConnected) usedGotVin(form, vin);
     return;
   }
-  if (SC.n === 60) scanUI("Still looking… move a little closer or farther, and turn on the light if it’s dark.", true);
+  if (SC.n === 60) scanUI("Still looking… move closer or farther, turn on the light, or tap Type it in.", true);
   SC.timer = setTimeout(() => scanLoop(v), 60);
 }
 function scanBeep(){
@@ -1506,7 +1506,7 @@ function scanBeep(){
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-scan]"); if (!b) return;
   const k = b.dataset.scan;
-  if (k === "cancel"){ scanStop(); return; }
+  if (k === "cancel"){ const form = SC.form; scanStop(); if (form && form.isConnected){ const m = form.querySelector("#uScanMsg"); if (m) m.textContent = "Type the stock # and at least the last 8 of the VIN, then pick the make and model."; setTimeout(() => (form.stock.value.trim() ? form.vin : form.stock).focus(), 50); } return; }
   if (k === "photo"){ const form = SC.form; scanStop(); (form && form.isConnected ? form.querySelector("#uScanFile") : $("#uScanFile"))?.click(); return; }
   if (k === "torch" && SC.stream){
     SC.torch = !SC.torch;
