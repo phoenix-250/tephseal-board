@@ -1209,8 +1209,8 @@ const USED_COLORS = ["White","Black","Silver","Gray","Red","Blue"];
 function usedFields(u, detStore, det, scanTop){
   const v = k => esc(u[k] || "");
   const col = String(u.color || "");
-  return (scanTop ? '<div class="field"><button class="btn u-scanbig" type="button" data-action="u-scan">📷 Scan VIN barcode</button>' +
-      '<div id="uScanMsg" class="muted" style="font-size:14px">Driver door jamb. Fills in VIN, year, make and model.</div></div>' : "") +
+  return (scanTop ? '<div class="field"><button class="btn u-scanbig" type="button" data-action="u-scan">📷 Scan VIN barcode or QR code</button>' +
+      '<div id="uScanMsg" class="muted" style="font-size:14px">Door jamb barcode, windshield sticker, or any VIN QR code. Fills in VIN, year, make and model.</div></div>' : "") +
     '<input type="file" accept="image/*" capture="environment" id="uScanFile" class="hidden">' +
     '<div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<label class="field"><span>Stock # <em>*</em></span><input class="input" name="stock" value="' + v("stock") + '" autocapitalize="characters" enterkeyhint="next" style="text-transform:uppercase" placeholder="U24519"></label>' +
@@ -1278,10 +1278,20 @@ function loadBarcodeLib(){
   if (!barcodeLib) barcodeLib = new Promise((ok, bad) => { const sc = document.createElement("script"); sc.src = BARCODE_LIB; sc.onload = () => window.ZXing ? ok(window.ZXing) : bad(new Error("no lib")); sc.onerror = () => { barcodeLib = null; bad(new Error("load")); }; document.head.appendChild(sc); });
   return barcodeLib;
 }
+// VIN check digit (9th character) — lets us pick the real VIN out of QR text and reject misreads
+function vinCheckOk(v){
+  const map = { A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9 }, wt = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+  let sum = 0; for (let i = 0; i < 17; i++){ const c = v[i]; sum += (/\d/.test(c) ? +c : map[c] || 0) * wt[i]; }
+  const r = sum % 11; return v[8] === (r === 10 ? "X" : String(r));
+}
 function cleanVin(t){
-  let v = String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const raw = String(t || "").toUpperCase();
+  let v = raw.replace(/[^A-Z0-9]/g, "");
   if (v.length === 18 && /^[IA]/.test(v)) v = v.slice(1);   // some VIN barcodes start with an extra I
-  return /^[A-HJ-NPR-Z0-9]{17}$/.test(v) ? v : null;
+  if (/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return v;
+  // QR codes often wrap the VIN in other text (a web link, "VIN:", the model...). Find it inside.
+  const found = raw.match(/(?<![A-Z0-9])[A-HJ-NPR-Z0-9]{17}(?![A-Z0-9])/g) || raw.match(/[A-HJ-NPR-Z0-9]{17}/g) || [];
+  return found.find(vinCheckOk) || (found.length === 1 ? found[0] : null);
 }
 const VIN_FORMATS = ["code_39","code_128","data_matrix","qr_code","pdf417"];
 let vinReader = null;
@@ -1415,7 +1425,7 @@ function scanUI(status, live){
   if (!r){
     r = document.createElement("div"); r.id = "scanRoot"; r.className = "scan";
     r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-box"><i></i></div>' +
-      '<div class="scan-top"><b>Scan VIN barcode</b><span id="scanStatus"></span></div>' +
+      '<div class="scan-top"><b>Scan VIN barcode or QR code</b><span id="scanStatus"></span></div>' +
       '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">Cancel</button>' +
       '<button class="btn hidden" type="button" data-scan="torch">🔦 Light</button>' +
       '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div>';
@@ -1446,7 +1456,7 @@ async function scanOpen(form){
     if (cap.focusMode && cap.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
     if (cap.torch) r.querySelector('[data-scan="torch"]').classList.remove("hidden");
   }catch(e){}
-  scanUI("Fill the box with the barcode. Hold steady.", true);
+  scanUI("Fill the box with the barcode or QR code. Hold steady.", true);
   scanLoop(v);
 }
 // The video is shown "cover"-style, so map the on-screen box back to camera pixels.
