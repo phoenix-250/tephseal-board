@@ -309,7 +309,10 @@ main[data-view="view"]{ max-width:1800px; }
 .tm-prev .btn{ background:#fff; color:#04121f; border-color:#fff; min-height:40px; }
 .tm-cfg{ color:var(--shop-ready); font-size:14px; font-weight:700; opacity:1; }
 .tm-gauge{ align-content:center; } .tm-gauge > *{ grid-column:1; } .tm-gauge small{ position:relative; display:block; font-size:11px; color:var(--shop-muted); font-weight:700; text-align:center; }
-.tm-avg{ margin-top:10px; } .tm-avg td:first-child{ color:var(--shop-muted); font-weight:600; }
+.tm-avg{ margin-top:10px; }
+.tm-sub-h{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--shop-muted); margin:14px 0 8px; }
+.tm-st.dn{ color:var(--shop-bad); background:color-mix(in srgb,var(--shop-bad) 16%,transparent); margin-right:2px; }
+.tm-rv td.tm-cmt{ white-space:normal; min-width:14em; } .tm-rv td:nth-child(2){ white-space:normal; } .tm-avg td:first-child{ color:var(--shop-muted); font-weight:600; }
 .tm-foot{ font-size:12px; color:var(--shop-muted); margin:8px 0 0; }
 .tm-bars.thin{ gap:2px; } .tm-bars.thin i{ border-radius:2px 2px 0 0; } .tm-bars.thin span{ font-size:10px; overflow:visible; }
 .vs-sw.lt{ min-width:118px; justify-content:flex-start; }
@@ -636,7 +639,7 @@ async function loadReviews(){
   try{
     if (db){
       const cols = S.role === "area" ? "job_id,store,score,issues,comment,salesperson,created_at" : "job_id,store,score,created_at";
-      const since = new Date(Date.now() - 60 * DAY).toISOString();
+      const since = new Date(Date.now() - (S.role === "area" ? 95 : 60) * DAY).toISOString();
       const { data, error } = await db.from("delivery_reviews").select(cols).gte("created_at", since).order("created_at", { ascending: false }).limit(5000);
       if (error) throw error;
       R.list = data.map(r => Object.assign({}, r, { t: new Date(r.created_at).getTime() }));
@@ -2092,7 +2095,11 @@ function vsDrill(key){
   const root = document.getElementById("vsRoot") || (() => { const r = document.createElement("div"); r.id = "vsRoot"; document.body.appendChild(r); return r; })();
   const now = Date.now(), tm = t => t ? fmtTime(t) : "—";
   let body;
-  if (d.kind === "used"){
+  if (d.kind === "reviews"){
+    const list = d.ids.map(id => R.list.find(r => r.job_id === id)).filter(Boolean);
+    body = list.length ? '<table class="dr-t"><thead><tr><th>Date</th><th>Stock</th><th>Vehicle</th><th>Salesperson</th><th>Rating</th><th>Issues</th><th>Comment</th></tr></thead><tbody>' + list.map(r => { const j = S.jobs.find(x => x.id === r.job_id) || VH.jobs.find(x => x.id === r.job_id) || {};
+      return '<tr><td>' + esc(fmtTime(r.t)) + '</td><td><b>' + esc(j.stock || "—") + '</b></td><td>' + esc(j.stock ? vehicle(j) : "—") + (S.store === "*" ? '<div class="muted">' + esc(storeName(r.store)) + '</div>' : "") + '</td><td>' + esc(r.salesperson || j.salesperson || "—") + '</td><td style="white-space:nowrap"><b class="' + (r.score >= 4 ? "u-c-ok" : r.score === 3 ? "u-c-warn" : "u-c-bad") + '">' + "★".repeat(r.score) + '</b><span class="muted">' + "★".repeat(5 - r.score) + '</span></td><td>' + esc((r.issues || []).join(", ") || "—") + '</td><td>' + esc(r.comment || "—") + '</td></tr>'; }).join("") + '</tbody></table>' : '<p class="muted">No reviews.</p>';
+  } else if (d.kind === "used"){
     const list = d.ids.map(id => U.list.find(u => u.id === id)).filter(Boolean);
     body = list.length ? '<table class="dr-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th>Added</th><th class="r">Time in detail</th></tr></thead><tbody>' + list.map(u => { const c = usedClock(u, now);
       return '<tr><td><b>' + esc(u.stock || "—") + '</b></td><td>' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="muted">' + esc(u.color) + '</span>' : "") + '</td><td>' + esc(USED_STAGES[u.stage]) + '</td><td>' + esc(u.detailer || "—") + '</td><td>' + esc(tm(u.createdAt)) + '</td><td class="r u-c-' + c.lvl + '"><b>' + esc(fmtDur(c.age)) + '</b></td></tr>'; }).join("") + '</tbody></table>' : '<p class="muted">No cars.</p>';
@@ -2112,6 +2119,31 @@ document.addEventListener("keydown", e => {
   if ((e.key === "Enter" || e.key === " ") && e.target.dataset && e.target.dataset.action === "vs-drill"){ e.preventDefault(); vsDrill(e.target.dataset.k); }
 }, true);
 
+// Delivery reviews (salesperson surveys): area managers only, never on the dealership's View store
+function vsReviewsTile(now, multi){
+  const on = multi ? stores().some(x => reviewsOn(x.id)) : reviewsOn(S.store);
+  if (!on || !R.loaded) return "";
+  const mine = R.list.filter(r => (multi || r.store === S.store) && r.t >= now - 90 * DAY).sort((a, b) => b.t - a.t);
+  const win = d => mine.filter(r => r.t >= now - d * DAY);
+  const avg = l => l.length ? (l.reduce((a, r) => a + r.score, 0) / l.length) : null;
+  const tag = (key, ttl, l, txt) => l.length ? '<span class="tm-n" ' + vsReg(key, ttl, l.map(r => ({ id: r.job_id })), "reviews") + '>' + txt + '</span>' : txt;
+  const W = [30, 60, 90].map(d => { const l = win(d); return { d, l, a: avg(l), low: l.filter(r => r.score <= 3) }; });
+  const r30 = W[0].l, iss = {};
+  r30.forEach(r => (r.issues || []).forEach(x => (iss[x] = iss[x] || []).push(r)));
+  const issRows = Object.entries(iss).sort((a, b) => b[1].length - a[1].length);
+  const notes = mine.filter(r => r.comment || (r.issues && r.issues.length) || r.score <= 3).slice(0, 40);
+  const star = n => '<b class="' + (n >= 4 ? "c-ok" : n === 3 ? "c-warn" : "c-bad") + '">' + "★".repeat(n) + '</b><span class="dim">' + "★".repeat(5 - n) + '</span>';
+  const left = '<table class="tm-t tm-avg"><thead><tr><th></th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
+      '<tr><td>Average rating</td>' + W.map(x => '<td class="r mono">' + (x.a == null ? "—" : x.a.toFixed(1) + " ★") + '</td>').join("") + '</tr>' +
+      '<tr><td>Reviews</td>' + W.map(x => '<td class="r mono">' + tag("rv" + x.d, "Delivery reviews, last " + x.d + " days", x.l, x.l.length) + '</td>').join("") + '</tr>' +
+      '<tr><td>3 stars or less</td>' + W.map(x => '<td class="r mono' + (x.low.length ? " c-bad" : "") + '">' + tag("rl" + x.d, "Reviews of 3 stars or less, last " + x.d + " days", x.low, x.low.length) + '</td>').join("") + '</tr></tbody></table>' +
+    '<div class="tm-sub-h">Issues flagged · last 30 days</div>' + (issRows.length ? '<div class="tm-prods">' + issRows.map(([x, l], i) => '<div class="tm-click" ' + vsReg("ri" + i, x + " (last 30 days)", l.map(r => ({ id: r.job_id })), "reviews") + '><span>' + esc(x) + '</span><b class="mono">' + l.length + ' <em>' + Math.round(l.length / r30.length * 100) + '%</em></b><i style="width:' + Math.round(l.length / issRows[0][1].length * 100) + '%;background:var(--shop-bad)"></i></div>').join("") + '</div>' : '<div class="tm-empty">No issues flagged.</div>');
+  const right = notes.length ? '<table class="tm-t tm-rv"><thead><tr><th>Date</th><th>Car</th><th>Sales</th><th>Rating</th><th>Comments & issues</th></tr></thead><tbody>' + notes.map(r => { const j = S.jobs.find(x => x.id === r.job_id) || VH.jobs.find(x => x.id === r.job_id) || {};
+      return '<tr class="tm-click" ' + vsReg("rr-" + r.job_id, "Delivery review", [{ id: r.job_id }], "reviews") + '><td class="mono">' + esc(new Date(r.t).toLocaleDateString([], { month:"numeric", day:"numeric" })) + '</td><td>' + (j.stock ? '<span class="mono">' + esc(j.stock) + '</span> ' + esc(vehicle(j)) : "—") + (multi ? ' <span class="dim">· ' + esc(storeName(r.store)) + '</span>' : "") + '</td><td>' + esc(r.salesperson || j.salesperson || "—") + '</td><td style="white-space:nowrap">' + star(r.score) + '</td><td class="tm-cmt">' + (r.issues && r.issues.length ? r.issues.map(x => '<span class="tm-st dn">' + esc(x) + '</span> ').join("") : "") + (r.comment ? '<span>“' + esc(r.comment) + '”</span>' : (r.issues && r.issues.length ? "" : '<span class="dim">No comment</span>')) + '</td></tr>'; }).join("") + '</tbody></table>'
+    : '<div class="tm-empty">No comments, issues or low ratings in the last 90 days.</div>';
+  return '<div class="tm-row rC n2"><section class="tm-p"><header><h3>Delivery reviews</h3><span class="tm-sub dim">area managers only</span></header><div class="tm-body">' + left + '</div></section>' +
+    '<section class="tm-p"><header><h3>Comments & low ratings</h3><span class="tm-sub">' + tag("rn", "Reviews with comments, issues or low ratings", notes, notes.length) + ' · 90 days</span></header><div class="tm-body">' + right + '</div></section></div>';
+}
 function viewStore(){
   for (const k in VSD) delete VSD[k];
   if ((S.store || "*") !== VH.key || Date.now() - VH.at > 5 * MIN) setTimeout(vsHistory, 0);
@@ -2216,8 +2248,7 @@ function viewStore(){
       '<table class="tm-t tm-avg"><thead><tr><th></th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
       '<tr><td>Ready on time</td>' + W.map(x => cellN("ot" + x.d, "Ready on time? (" + x.d + " days)", x.fin, pct(x.ot))).join("") + '</tr>' +
       '<tr><td>Sold → ready</td>' + W.map(x => cellN("tn" + x.d, "Sold → ready (" + x.d + " days)", x.fin, dur(x.turn))).join("") + '</tr>' +
-      '<tr><td>Deliveries / day</td>' + W.map(x => cellN("pd" + x.d, "Delivered, last " + x.d + " days", x.del, x.perDay.toFixed(1))).join("") + '</tr>' +
-      '<tr><td>Products / car</td>' + W.map(x => cellN("pp" + x.d, "Delivered, last " + x.d + " days (products)", x.del, x.ppc == null ? "—" : x.ppc.toFixed(1))).join("") + '</tr></tbody></table>' +
+      '<tr><td>Deliveries / day</td>' + W.map(x => cellN("pd" + x.d, "Delivered, last " + x.d + " days", x.del, x.perDay.toFixed(1))).join("") + '</tr></tbody></table>' +
       (haveDays < 90 ? '<p class="tm-foot">The board has ' + haveDays + ' day' + (haveDays === 1 ? "" : "s") + ' of history so far, so the longer averages fill in over time.</p>' : "")) : "",
     v.products ? tile("Products · last 30 days", '<span class="tm-sub">' + prodN(d30) + ' sold</span>', top.length ? '<div class="tm-prods">' + top.map(([p, n], i) => '<div class="tm-click" ' + vsReg("p" + i, p + " (last 30 days)", pcars[p]) + '><span>' + esc(p) + '</span><b class="mono">' + n + ' <em>' + Math.round(n / d30.length * 100) + '% of cars</em></b><i style="width:' + Math.round(n / top[0][1] * 100) + '%"></i></div>').join("") + '</div>'
       : '<div class="tm-empty">No products recorded in the last 30 days.</div>') : ""
@@ -2245,6 +2276,7 @@ function viewStore(){
       : '<div class="tm-empty">No deliveries in the last 30 days.</div>');
   }
   h += row("rC", [tUsed, tRank]);
+  if (area) h += rvSafe(() => vsReviewsTile(now, multi));
   return h + '</div>';
 }
 
