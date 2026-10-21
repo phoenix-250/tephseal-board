@@ -2178,7 +2178,7 @@ async function vsHistory(){
   if (!db || VH.busy || (VH.key === key && Date.now() - VH.at < 5 * MIN)) return;
   VH.busy = true;
   try{
-    let q = db.from("jobs").select("id,data").gte("created_at", new Date(Date.now() - 95 * DAY).toISOString()).order("created_at", { ascending: false }).limit(6000);
+    let q = db.from("jobs").select("id,data").gte("created_at", Date.now() - 95 * DAY).order("created_at", { ascending: false }).limit(6000);
     if (key !== "*") q = q.eq("data->>store", key);
     const { data, error } = await q; if (error) throw error;
     VH.jobs = data.map(r => Object.assign({ id: r.id }, r.data)); VH.key = key; VH.at = Date.now();
@@ -2592,7 +2592,7 @@ document.addEventListener("click", async e => {
       const cut = Date.now() - 90 * DAY;
       let old = S.jobs.filter(j => j.status === "delivered" && (j.deliveredAt || 0) < cut).map(j => j.id);
       if (db){
-        try{ const { data } = await db.from("jobs").select("id,data").eq("data->>status", "delivered").lt("created_at", new Date(cut).toISOString()).limit(2000);
+        try{ const { data } = await db.from("jobs").select("id,data").eq("data->>status", "delivered").lt("created_at", cut).limit(2000);
           (data || []).forEach(r => { if ((r.data.deliveredAt || 0) < cut && !old.includes(r.id)) old.push(r.id); }); }catch(err){}
       }
       if (!old.length){ toast("Nothing to clear."); break; }
