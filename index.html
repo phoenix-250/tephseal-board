@@ -564,6 +564,23 @@ function vehicle(j){ return [j.year, j.make, j.model].filter(Boolean).join(" ") 
 function sortJobs(list){ return list.slice().sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0)); }
 
 /* ---------- data layer (live db, or in-memory preview) ---------- */
+// Busy stores have several people touching the same car (finance adding products while the shop marks it
+// ready). Every save re-reads the row first and merges, so one person's change never wipes another's.
+async function freshRow(table, id, local){
+  try{
+    const { data, error } = await db.from(table).select("data").eq("id", id).maybeSingle();
+    if (!error && data && data.data) return Object.assign({}, data.data, { id });
+  }catch(e){}
+  return local;   // couldn't check: fall back to what this screen has
+}
+function mergeRow(cur, patch){
+  const next = Object.assign({}, cur, patch);
+  if (Array.isArray(patch.log) && Array.isArray(cur.log)){   // keep everyone's history lines
+    const seen = new Set(), all = cur.log.concat(patch.log).filter(l => { const k = l.t + "|" + l.a + "|" + l.by; if (seen.has(k)) return false; seen.add(k); return true; });
+    next.log = all.sort((a, b) => a.t - b.t).slice(-60);
+  }
+  return next;
+}
 let db = null;
 const mem = { jobs: new Map() };
 function memEmit(){ S.jobs = [...mem.jobs.entries()].map(([id, d]) => Object.assign({id}, d)).sort((a,b)=>b.createdAt-a.createdAt); render(); }
@@ -584,8 +601,8 @@ const api = {
   async update(id, patch){
     patch.updatedAt = Date.now();
     if (db){
-      const cur = S.jobs.find(j => j.id === id) || {};
-      const next = Object.assign({}, cur, patch); delete next.id;
+      const cur = await freshRow("jobs", id, S.jobs.find(j => j.id === id) || {});
+      const next = mergeRow(cur, patch); delete next.id;
       await guard(db.from("jobs").update({ data: next }).eq("id", id));
       upsertLocal(Object.assign({ id }, next)); render(); return;
     }
@@ -953,8 +970,19 @@ async function usedLoadFlags(){
 }
 async function usedLoad(){
   if (!db){ U.list = [...memUsed.values()].map(u => Object.assign({}, u)); U.loaded = true; return; }   // preview: detailers stay in U.detailers
-  const { data, error } = await db.from("used_units").select("id,store,data").order("created_at", { ascending: false }).limit(6000);
+  const one = S.role !== "area" && S.store && S.store !== "*" ? S.store : null;
+  let q = db.from("used_units").select("id,store,data");
+  if (one) q = q.in("store", [one, USED_SET]);
+  const { data, error } = await q.gte("created_at", new Date(Date.now() - 95 * DAY).toISOString()).order("created_at", { ascending: false }).limit(one ? 3000 : 8000);
   if (error) throw error;
+  // settings rows (detailer lists, saved models) can be older than 95 days: fetch them separately
+  const [setq, openq] = await Promise.all([
+    db.from("used_units").select("id,store,data").eq("store", USED_SET),
+    (one ? db.from("used_units").select("id,store,data").eq("store", one) : db.from("used_units").select("id,store,data").neq("store", USED_SET)).neq("data->>stage", "done").limit(3000)
+  ]);
+  const have = new Set(data.map(x => x.id));
+  [setq, openq].forEach(q => { if (!q.error) q.data.forEach(r => { if (!have.has(r.id)){ have.add(r.id); data.push(r); } }); });
+  U.lastLoad = Date.now();
   const det = {};
   U.list = data.filter(r => { if (r.store !== USED_SET) return true; if (r.id.startsWith("detailers:")) det[r.id.slice(10)] = (r.data && r.data.names) || []; else if (r.id === "models") U.models = (r.data && r.data.models) || {}; return false; })
     .map(r => Object.assign({}, r.data, { id: r.id, store: r.store }));
@@ -967,7 +995,8 @@ async function usedPurge(){
   try{
     if (!db || !["shop","area"].includes(S.role) || Date.now() - U.lastPurge < HOUR) return;
     U.lastPurge = Date.now();
-    const old = U.list.filter(u => !usedKeep(u)).map(u => u.id).slice(0, 200);
+    const { data: cand } = await db.from("used_units").select("id,store,data").neq("store", USED_SET).eq("data->>stage", "done").lt("created_at", new Date(Date.now() - USED_KEEP).toISOString()).limit(500);
+    const old = (cand || []).filter(r => r.data && (r.data.doneAt || 0) < Date.now() - USED_KEEP).map(r => r.id).slice(0, 200);
     if (!old.length) return;
     const { error } = await db.from("used_units").delete().in("id", old);
     if (!error) U.list = U.list.filter(u => !old.includes(u.id));
@@ -981,7 +1010,8 @@ const usedApi = {
     U.list.unshift(Object.assign({}, d, { id, store }));
   },
   async update(u, patch){
-    const next = Object.assign({}, u, patch, { updatedAt: Date.now() }); delete next.id; delete next.store;
+    const base = db ? await freshRow("used_units", u.id, u) : u;
+    const next = mergeRow(base, Object.assign({}, patch, { updatedAt: Date.now() })); delete next.id; delete next.store;
     if (db){ const { error } = await db.from("used_units").update({ data: next, updated_at: new Date().toISOString() }).eq("id", u.id); if (error) throw error; }
     else memUsed.set(u.id, Object.assign({}, next, { id: u.id, store: u.store }));
     const i = U.list.findIndex(x => x.id === u.id), row = Object.assign({}, next, { id: u.id, store: u.store });
@@ -1056,7 +1086,10 @@ async function usedTick(){
   try{
     await vsLoad();
     await usedLoadFlags();
-    if (usedOn("*")){ await usedLoad(); usedListen(); }
+    if (usedOn("*")){
+      if (!U.loaded || !U.rt || Date.now() - (U.lastLoad || 0) > 3 * MIN || U.scope !== (S.role === "area" ? "*" : S.store)){ await usedLoad(); U.scope = S.role === "area" ? "*" : S.store; }
+      usedListen();
+    }
   }catch(e){ console.warn("Used cars didn't load (board unaffected):", e); }
   U.running = false;
   uSafe(usedRedraw);
@@ -1066,11 +1099,23 @@ function usedListen(){
   if (!db || U.chan) return;
   try{
     U.chan = db.channel("used-cars")
-      .on("postgres_changes", { event: "*", schema: "public", table: "used_units" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "used_units" }, p => {
+        // apply the one change that came in; no need to re-download every used car
+        try{
+          if (p.eventType === "DELETE"){ const id = p.old && p.old.id; if (id) U.list = U.list.filter(u => u.id !== id); }
+          else if (p.new && p.new.id){
+            const r = p.new;
+            if (r.store === USED_SET){ if (r.id.startsWith("detailers:")) U.detailers[r.id.slice(10)] = (r.data && r.data.names) || []; else if (r.id === "models") U.models = (r.data && r.data.models) || {}; }
+            else if (S.role === "area" || !S.store || S.store === "*" || r.store === S.store){
+              const row = Object.assign({}, r.data, { id: r.id, store: r.store }), i = U.list.findIndex(u => u.id === r.id);
+              if (i >= 0) U.list[i] = row; else U.list.unshift(row);
+            }
+          }
+        }catch(e){ U.lastLoad = 0; }
         clearTimeout(usedRefreshTimer);
-        usedRefreshTimer = setTimeout(async () => { try{ await usedLoad(); }catch(e){} uSafe(usedRedraw); }, 400);
+        usedRefreshTimer = setTimeout(() => uSafe(usedRedraw), 250);
       })
-      .subscribe();
+      .subscribe(st => { U.rt = st === "SUBSCRIBED"; if (st === "CHANNEL_ERROR" || st === "TIMED_OUT" || st === "CLOSED"){ U.rt = false; } });
   }catch(e){ U.chan = null; }
 }
 (function(){
@@ -2544,11 +2589,23 @@ document.addEventListener("click", async e => {
       await api.saveConfig(Object.assign({}, S.config, { stores: next })).catch(()=>{}); render(true); break; }
     case "logo-clear": await api.saveConfig(Object.assign({}, S.config, { logoId: null })).catch(()=>{}); render(true); break;
     case "cleanup": {
-      const old = S.jobs.filter(j => j.status === "delivered" && (j.deliveredAt || 0) < Date.now() - 90 * 24 * HOUR);
+      const cut = Date.now() - 90 * DAY;
+      let old = S.jobs.filter(j => j.status === "delivered" && (j.deliveredAt || 0) < cut).map(j => j.id);
+      if (db){
+        try{ const { data } = await db.from("jobs").select("id,data").eq("data->>status", "delivered").lt("created_at", new Date(cut).toISOString()).limit(2000);
+          (data || []).forEach(r => { if ((r.data.deliveredAt || 0) < cut && !old.includes(r.id)) old.push(r.id); }); }catch(err){}
+      }
       if (!old.length){ toast("Nothing to clear."); break; }
-      t.disabled = true;
-      for (const j of old){ try{ await api.remove(j.id); }catch(err){ break; } }
-      toast("Cleared " + old.length + " old units"); render(true); break; }
+      t.disabled = true; let n = 0;
+      try{
+        for (let i = 0; i < old.length; i += 100){
+          const ids = old.slice(i, i + 100);
+          if (db){ const { error } = await db.from("jobs").delete().in("id", ids); if (error) throw error; S.jobs = S.jobs.filter(j => !ids.includes(j.id)); }
+          else { ids.forEach(id => mem.jobs.delete(id)); memEmit(); }
+          n += ids.length;
+        }
+      }catch(err){ toast("Cleared " + n + ", then lost connection. Try again for the rest.", true); render(true); break; }
+      toast("Cleared " + n + " old units"); render(true); break; }
   }
 });
 document.addEventListener("change", async e => {
@@ -2643,14 +2700,21 @@ function readCfg(d){
   S.config = { stores: (d.stores || []).map(s => ({ id: s.id, name: s.name, code: s.code || "", mcode: s.mcode || "" })), products: d.products ? d.products.slice() : null, logoId: null, masterPin: d.masterPin || "" };
 }
 async function loadAll(){
-  const [c, jr] = await Promise.all([
+  // A store-locked device (sales, finance, shop TV) only downloads its own store; area managers get every store.
+  const one = S.role !== "area" && S.store && S.store !== "*" ? S.store : null;
+  const scope = q => one ? q.eq("data->>store", one) : q;
+  const [c, jr, op] = await Promise.all([
     db.from("config").select("data").eq("id", "settings").maybeSingle(),
-    db.from("jobs").select("id,data").order("created_at", { ascending: false }).limit(900)
+    scope(db.from("jobs").select("id,data")).order("created_at", { ascending: false }).limit(one ? 1500 : 4000),
+    // every car still in the shop, however old, so a slow one can never fall off the board
+    scope(db.from("jobs").select("id,data").neq("data->>status", "delivered")).order("created_at", { ascending: false }).limit(3000)
   ]);
   if (c.error || jr.error) throw (c.error || jr.error);
   const before = new Set(S.jobs.map(j => j.id)), first = !S.loaded;
   readCfg(c.data && c.data.data);
-  const docs = jr.data.map(r => Object.assign({ id: r.id }, r.data));
+  const byId = new Map();
+  jr.data.concat(op.error ? [] : op.data).forEach(r => byId.set(r.id, Object.assign({ id: r.id }, r.data)));
+  const docs = [...byId.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const added = first ? [] : docs.filter(d => !before.has(d.id) && !mine.has(d.id));
   S.online = true;
   handleJobsSnap(docs, added);
