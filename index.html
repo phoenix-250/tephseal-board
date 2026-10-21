@@ -418,6 +418,8 @@ main[data-view="view"]{ max-width:1800px; }
 .au.one{ grid-template-columns:minmax(0,640px); justify-content:center; }
 .au-col{ display:grid; gap:14px; min-width:0; }
 .au-col .narrow{ max-width:none; margin:0; }
+.au-h{ font-size:clamp(26px,2.4vw,34px); margin:0 0 2px; color:var(--brand); } .au-h.used{ color:#0B7F6C; }
+:root[data-theme="dark"] .au-h.used{ color:#3ED3B8; } @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .au-h.used{ color:#3ED3B8; } }
 .au-tag{ justify-self:start; font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; padding:4px 12px; border-radius:999px; }
 .au-sold .au-tag{ background:color-mix(in srgb,var(--brand) 14%,transparent); color:var(--brand); }
 .au-used .au-tag{ background:color-mix(in srgb,#0E9E86 16%,transparent); color:#0B7F6C; }
@@ -1696,7 +1698,7 @@ document.addEventListener("submit", async e => {
       else { usedClose(); toast("Added. It’s on the shop board under In detail."); }
       usedRerender();
     }
-    catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = f.dataset.inline ? "Add used car" : "Add"; toast("That didn't save. Check your connection and try again.", true); }
+    catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = f.dataset.inline ? "Send to Teph Seal" : "Add"; toast("That didn't save. Check your connection and try again.", true); }
     U.busy = false;
   }catch(e3){ U.busy = false; console.warn("Used cars:", e3); }
 });
@@ -1935,8 +1937,8 @@ function viewAdd(){
   const side = S.addSide || (sold ? "sold" : "used");
   return '<div class="au' + (sold ? "" : " one") + '" data-side="' + side + '">' +
     (sold ? '<div class="au-switch" role="group" aria-label="What are you adding?"><button data-action="au-side" data-s="sold" aria-pressed="' + (side === "sold") + '">Sold unit · delivery</button><button data-action="au-side" data-s="used" aria-pressed="' + (side === "used") + '">Used car · detail</button></div>' : "") +
-    (sold ? '<section class="au-col au-sold"><div class="au-tag">Delivery</div>' + viewAddSold() + '</section>' : "") +
-    '<section class="au-col au-used"><div class="au-tag">Used car</div><div id="auUsedForm">' + usedInlineForm() + '</div><div id="auUsedList" class="panel au-list">' + viewUsed(true) + '</div></section></div>';
+    (sold ? '<section class="au-col au-sold">' + viewAddSold() + '</section>' : "") +
+    '<section class="au-col au-used"><div id="auUsedForm">' + usedInlineForm() + '</div><div id="auUsedList" class="panel au-list">' + viewUsed(true) + '</div></section></div>';
 }
 function usedInlineForm(){
   return uSafe(() => {
@@ -1945,10 +1947,10 @@ function usedInlineForm(){
     const storeField = (S.role === "area" && st.filter(x => usedOn(x.id)).length > 1)
       ? '<label class="field"><span>Store <em>*</em></span><select class="input" name="store">' + st.filter(x => usedOn(x.id)).map(x => '<option value="' + esc(x.id) + '"' + (x.id === store ? " selected" : "") + '>' + esc(x.name) + '</option>').join("") + '</select></label>'
       : '<input type="hidden" name="store" value="' + esc(store) + '">';
-    return '<form class="panel form" data-form="u-add" data-inline="1" novalidate autocomplete="off"><h2>New used car</h2>' +
-      (inl.last ? '<div class="u-ok-msg" role="status">✓ #' + esc(inl.last) + ' added. It’s on the shop board under In detail. Enter the next one any time.</div>' : '<p class="muted" style="margin:-4px 0 0">Goes on the shop board under In detail. 24 hours expected, 48 max.</p>') + storeField +
+    return '<form class="panel form" data-form="u-add" data-inline="1" novalidate autocomplete="off"><h2 class="au-h used">Used Vehicle</h2>' +
+      (inl.last ? '<div class="u-ok-msg" role="status">✓ #' + esc(inl.last) + ' sent to Teph Seal. It’s on the shop board under In detail.</div>' : "") + storeField +
       usedFields({}, usedPerm(S.role).move ? (S.store !== "*" ? S.store : store) : null, inl.detailer || "", true) +
-      '<div id="uErr"></div><button class="btn primary big" type="submit" id="uSubmit">Add used car</button></form>';
+      '<div id="uErr"></div><button class="btn primary big" type="submit" id="uSubmit">Send to Teph Seal</button></form>';
   }, '<div class="panel"><p class="muted">Used cars didn’t load. The delivery side works fine.</p></div>');
 }
 function usedInlineRefresh(top){ const el = document.getElementById("auUsedForm"); if (!el) return; el.innerHTML = usedInlineForm(); usedListRefresh(); if (top) el.scrollIntoView({ block: "start", behavior: "smooth" }); }
@@ -1958,7 +1960,7 @@ function viewAddSold(){
   if (!S.canWrite) return '<div class="empty"><h3>View only</h3><p>This device can’t add units.</p></div>';
   if (S.addDone){
     const j = S.addDone;
-    return '<div class="narrow panel success"><div class="check" aria-hidden="true">✓</div><h2>Sent to the detail shop</h2><p class="muted">' + esc(vehicle(j)) + ' #' + esc(j.stock) + ' is on the board at ' + esc(storeName(j.store)) + '. Due ' + esc(fmtTime(j.dueAt)) + '.</p>' +
+    return '<div class="narrow panel success"><div class="check" aria-hidden="true">✓</div><h2>Sent to Teph Seal</h2><p class="muted">' + esc(vehicle(j)) + ' #' + esc(j.stock) + ' is on the board at ' + esc(storeName(j.store)) + '. Due ' + esc(fmtTime(j.dueAt)) + '.</p>' +
       '<div class="row" style="justify-content:center;margin-top:18px"><button class="btn primary" data-action="add-another">Add another</button><button class="btn" data-action="tab" data-tab="queue">See the queue</button></div></div>';
   }
   const st = stores();
@@ -1966,7 +1968,7 @@ function viewAddSold(){
     ? '<label class="field"><span>Store <em>*</em></span><select class="input" name="store">' + st.map(s => '<option value="' + esc(s.id) + '"' + (s.id === S.store ? " selected" : "") + '>' + esc(s.name) + '</option>').join("") + '</select></label>'
     : '<input type="hidden" name="store" value="' + esc(S.role === "area" ? (S.store !== "*" ? S.store : st[0].id) : S.store) + '">';
   return '<form class="narrow panel form" data-form="add" novalidate autocomplete="off">' +
-    '<h2>New sold unit</h2>' + storeField +
+    '<h2' + (uSafe(() => usedTab(), false) ? ' class="au-h">Delivery' : '>New sold unit') + '</h2>' + storeField +
     '<label class="field"><span>Stock number <em>*</em></span><input class="input" name="stock" autocapitalize="characters" enterkeyhint="next" placeholder="e.g. T24519"></label>' +
     '<div class="field"><span>Vehicle <em>*</em></span><div class="grid3">' +
       '<input class="input" name="year" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year">' +
@@ -1985,13 +1987,13 @@ function viewAddSold(){
       products().map(p => '<label class="chip-opt"><input type="checkbox" name="prod" value="' + esc(p) + '"><span>' + esc(p) + '</span></label>').join("") + '</div></div>' +
     '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" placeholder="Anything the detailers should know"></textarea></label>' +
     '<div id="addErr"></div>' +
-    '<button class="btn primary big" type="submit" id="addSubmit">Send to detail shop</button></form>';
+    '<button class="btn primary big" type="submit" id="addSubmit">Send to Teph Seal</button></form>';
 }
 function wireAdd(){
   const f = document.querySelector('[data-form="add"]'); if (!f) return;
   f.addEventListener("change", e => {
     if (e.target.name === "due") f.dueCustom.classList.toggle("hidden", e.target.value !== "custom");
-    if (e.target.name === "stock" || e.target.name === "store"){ S.dupeOk = false; $("#addSubmit").textContent = "Send to detail shop"; $("#addErr").innerHTML = ""; }
+    if (e.target.name === "stock" || e.target.name === "store"){ S.dupeOk = false; $("#addSubmit").textContent = "Send to Teph Seal"; $("#addErr").innerHTML = ""; }
   });
 }
 async function submitAdd(f){
@@ -2031,7 +2033,7 @@ async function submitAdd(f){
   try{
     await api.add(job);
     S.addDone = job; S.dupeOk = false; S.store = store === S.store ? S.store : S.store; render(true);
-  }catch(e){ btn.disabled = false; btn.textContent = "Send to detail shop"; }
+  }catch(e){ btn.disabled = false; btn.textContent = "Send to Teph Seal"; }
 }
 
 /* --- Queue --- */
