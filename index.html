@@ -901,13 +901,13 @@ function usedClock(u, now){
   const end = u.stage === "done" ? (u.doneAt || now) : now, age = Math.max(0, end - (u.createdAt || end));
   const lvl = age < USED_GOAL ? "ok" : age < USED_MAX ? "warn" : "bad";
   let txt;
-  if (u.stage === "done") txt = "took " + fmtDur(age);
+  if (u.stage === "done") txt = "Completed in " + fmtDur(age);
   else if (age < USED_GOAL) txt = fmtDur(USED_GOAL - age) + " left";
   else if (age < USED_MAX) txt = fmtDur(USED_MAX - age) + " to 48h";
   else txt = fmtDur(age - USED_MAX) + " past 48h";
   // short version for the TV strip: whole hours once it's 2h+, so names get the room
   const sd = ms => ms >= 2 * HOUR ? Math.round(ms / HOUR) + "h" : fmtDur(ms);
-  const short = u.stage === "done" ? "took " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
+  const short = u.stage === "done" ? "Completed in " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
   return { lvl, txt, age, short };
 }
 const usedDetailers = store => (U.detailers[store] || []).slice().sort((a, b) => a.localeCompare(b));
@@ -1066,7 +1066,7 @@ function usedStrip(store){
     const cols = [
       ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
-      ["done", "Done today", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
+      ["done", "Completed", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
     ];
     const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
       '<span class="u-stock">' + esc(usedId(u)) + '</span>' +
@@ -1099,7 +1099,7 @@ function viewUsed(){
         '<button class="job-main" data-action="u-open" data-id="' + esc(u.id) + '"><div class="job-title">' + esc(usedVeh(u)) + (u.color ? ' <span class="muted" style="font-weight:500">' + esc(u.color) + '</span>' : "") + '</div>' +
         '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN ' + esc(u.vin.slice(-8)) + '</span>' : "") +
         (S.store === "*" ? '<span>' + esc(storeName(u.store)) + '</span>' : "") +
-        (u.stage === "done" ? '<span>Done ' + esc(fmtTime(u.doneAt)) + '</span>' : "") +
+        (u.stage === "done" ? '<span>Completed ' + esc(fmtTime(u.doneAt)) + '</span>' : "") +
         '<span><b class="u-c-' + c.lvl + '">' + esc(c.txt) + '</b></span>' +
         '<span>' + (u.detailer ? 'Detailer <b>' + esc(u.detailer) + '</b>' : '<span class="muted">No detailer</span>') + '</span>' +
         '<span>Added by ' + esc(u.addedBy || "—") + '</span>' +
@@ -1112,8 +1112,8 @@ function viewUsed(){
       '<p class="muted" style="margin:6px 0 0">Timer starts when a car is added: 24 hours expected, 48 hours max.</p>' +
       '<div class="filters" role="group" aria-label="Filter">' +
         '<button class="filter" data-action="u-filter" data-f="open" aria-pressed="' + (U.filter !== "done") + '">In the shop (' + open.length + ')</button>' +
-        '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Done, last 90 days (' + done.length + ')</button></div>' +
-      (rows ? '<div class="list">' + rows + '</div>' : '<div class="empty panel"><h3>Nothing here</h3><p>' + (U.filter === "done" ? "No used cars finished in the last 90 days." : "No used cars in the shop right now.") + '</p></div>');
+        '<button class="filter" data-action="u-filter" data-f="done" aria-pressed="' + (U.filter === "done") + '">Completed, last 90 days (' + done.length + ')</button></div>' +
+      (rows ? '<div class="list">' + rows + '</div>' : '<div class="empty panel"><h3>Nothing here</h3><p>' + (U.filter === "done" ? "No used cars completed in the last 90 days." : "No used cars in the shop right now.") + '</p></div>');
   }, '<div class="empty"><h3>Used cars didn’t load</h3><p>The delivery board is fine. Try again in a minute.</p></div>');
 }
 
@@ -1123,7 +1123,7 @@ function usedTileLine(id){
     if (!usedOn(id) || !U.loaded) return "";
     const l = usedFor(id);
     const now = Date.now(), over = l.filter(u => u.stage !== "done" && usedClock(u, now).lvl !== "ok").length;
-    return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> done today' +
+    return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> completed today' +
       (over ? ', <span class="bad">' + over + ' over 24h</span>' : "") + '</div>';
   }, "");
 }
@@ -1192,7 +1192,7 @@ function usedModal(){
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="u-del" data-id="' + esc(u.id) + '">' + (U.modal.confirmDel ? "Tap again to remove for good" : "Remove from used cars") + '</button></div>' : "";
   root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
     '<div class="row" style="margin-top:6px"><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span>' + (u.color ? '<span class="muted">' + esc(u.color) + '</span>' : "") + '</div>' +
-    '<div class="sec"><p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Finished in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>' +
+    '<div class="sec"><p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Completed in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>' +
       '<dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
       '<div><dt>Detailer</dt><dd>' + esc(u.detailer || "Not assigned") + '</dd></div>' +
       '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
@@ -2198,7 +2198,7 @@ function viewStore(){
     ready.filter(j => j.readyAt >= T0).forEach(j => ev.push([j.readyAt, "rd", "READY", "#" + j.stock + " " + vehicle(j)]));
     all.filter(j => j.createdAt >= T0).forEach(j => ev.push([j.createdAt, "nw", "SOLD", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
     if (v.now) late.forEach(j => ev.push([now, "dn", "LATE", "#" + j.stock + " " + vehicle(j) + " " + dueText(j, now)]));
-    if (useOn){ uLate.forEach(u => ev.push([now, "dn", "USED 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "USED DONE", "#" + (u.stock || "") + " " + usedVeh(u)])); }
+    if (useOn){ uLate.forEach(u => ev.push([now, "dn", "USED 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "USED COMPLETED", "#" + (u.stock || "") + " " + usedVeh(u)])); }
     ev.sort((a, b) => b[0] - a[0]);
     const items = (ev.length ? ev.slice(0, 24) : [[now, "", "TODAY", "Quiet so far. Sold units will show up here."]]).map(e => '<span class="tk ' + e[1] + '"><b>' + e[2] + '</b> ' + esc(e[3]) + (e[2] === "LATE" || e[2] === "USED 48H+" ? "" : ' <em>' + esc(tm(e[0])) + '</em>') + '</span>').join("");
     const sec = Math.max(30, ev.length * 6);
@@ -2255,15 +2255,15 @@ function viewStore(){
   ]);
 
   let tUsed = "", tRank = "";
-  if (useOn) tUsed = tile("Used cars in detail", '<span class="tm-sub">' + num("t-uo", "Used cars in detail", uo, uo.length + " in", "used") + ' · ' + num("t-ud", "Used cars done, last 30 days", uDone30, uDone30.length + " done 30d", "used") + ' · avg ' + esc(dur(uAvg)) + '</span>',
+  if (useOn) tUsed = tile("Used cars in detail", '<span class="tm-sub">' + num("t-uo", "Used cars in detail", uo, uo.length + " in", "used") + ' · ' + num("t-ud", "Used cars completed, last 30 days", uDone30, uDone30.length + " completed (30d)", "used") + ' · avg ' + esc(dur(uAvg)) + '</span>',
     uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now), l = c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad";
       return '<tr class="u-' + l + ' tm-click" ' + vsReg("u-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(u.store)) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
       : '<div class="tm-empty">No used cars in detail right now.</div>') ;
   if (useOn) tUsed = tUsed.replace('</div></section>', '<table class="tm-t tm-avg"><thead><tr><th>Finished used cars</th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
-      '<tr><td>Cars done</td>' + UW.map(x => x.l.length ? '<td class="r mono"><span class="tm-n" ' + vsReg("ud" + x.d, "Used cars done, last " + x.d + " days", x.l, "used") + '>' + x.l.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr>' +
+      '<tr><td>Cars completed</td>' + UW.map(x => x.l.length ? '<td class="r mono"><span class="tm-n" ' + vsReg("ud" + x.d, "Used cars completed, last " + x.d + " days", x.l, "used") + '>' + x.l.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr>' +
       '<tr><td>Avg time in detail</td>' + UW.map(x => '<td class="r mono">' + esc(dur(x.avg)) + '</td>').join("") + '</tr>' +
-      '<tr><td>Done within 24h</td>' + UW.map(x => '<td class="r mono">' + pct(x.in24) + '</td>').join("") + '</tr>' +
-      '<tr><td>Took over 48h</td>' + UW.map(x => x.over48.length ? '<td class="r mono c-bad"><span class="tm-n" ' + vsReg("uo" + x.d, "Used cars over 48h, last " + x.d + " days", x.over48, "used") + '>' + x.over48.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr></tbody></table></div></section>');
+      '<tr><td>Completed within 24h</td>' + UW.map(x => '<td class="r mono">' + pct(x.in24) + '</td>').join("") + '</tr>' +
+      '<tr><td>Over 48 hours</td>' + UW.map(x => x.over48.length ? '<td class="r mono c-bad"><span class="tm-n" ' + vsReg("uo" + x.d, "Used cars over 48h, last " + x.d + " days", x.over48, "used") + '>' + x.over48.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr></tbody></table></div></section>');
   if (v.rank){
     const d90 = last(90), t = {};
     const add = (l, key) => l.forEach(j => { const n = (j.salesperson || "Unknown").trim(); t[n] = t[n] || { d: [], w: [], m: [], q: [], p: 0 }; t[n][key].push(j); if (key === "m") t[n].p += (j.products || []).length; });
