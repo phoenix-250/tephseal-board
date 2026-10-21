@@ -1938,7 +1938,7 @@ function viewAdd(){
   return '<div class="au' + (sold ? "" : " one") + '" data-side="' + side + '">' +
     (sold ? '<div class="au-switch" role="group" aria-label="What are you adding?"><button data-action="au-side" data-s="sold" aria-pressed="' + (side === "sold") + '">Sold unit · delivery</button><button data-action="au-side" data-s="used" aria-pressed="' + (side === "used") + '">Used car · detail</button></div>' : "") +
     (sold ? '<section class="au-col au-sold">' + viewAddSold() + '</section>' : "") +
-    '<section class="au-col au-used"><div id="auUsedForm">' + usedInlineForm() + '</div><div id="auUsedList" class="panel au-list">' + viewUsed(true) + '</div></section></div>';
+    '<section class="au-col au-used"><div id="auUsedForm">' + usedInlineForm() + '</div></section></div>';
 }
 function usedInlineForm(){
   return uSafe(() => {
@@ -1955,7 +1955,7 @@ function usedInlineForm(){
 }
 function usedInlineRefresh(top){ const el = document.getElementById("auUsedForm"); if (!el) return; el.innerHTML = usedInlineForm(); usedListRefresh(); if (top) el.scrollIntoView({ block: "start", behavior: "smooth" }); }
 function usedListRefresh(){ const el = document.getElementById("auUsedList"); if (el) el.innerHTML = viewUsed(true); }
-function usedRerender(){ if (S.view === "add" && document.getElementById("auUsedList")){ usedListRefresh(); renderShell(); } else render(true); }
+function usedRerender(){ if (S.view === "add" && document.getElementById("auUsedForm")){ renderShell(); } else render(true); }
 function viewAddSold(){
   if (!S.canWrite) return '<div class="empty"><h3>View only</h3><p>This device can’t add units.</p></div>';
   if (S.addDone){
@@ -2360,6 +2360,7 @@ function viewBoard(){
     (over ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">' + over + ' overdue</span>' : "") +
     (S.online === false ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">Offline, reconnecting…</span>' : "") +
     '<span class="spacer"></span>' +
+    (!S.tv && S.canWrite && S.store !== "*" && uSafe(() => usedOn(S.store) && usedPerm(S.role).move, false) ? '<button class="btn" data-action="u-team">Detailers (' + uSafe(() => usedDetailers(S.store).length, 0) + ')</button>' : "") +
     '<button class="btn" data-action="sound">' + (S.sound ? "Chime on" : "Turn on chime") + '</button>' +
     '<button class="btn" data-action="tv">' + (S.tv ? "Exit TV mode" : "TV mode") + '</button></div>' +
     '<div class="board-cols">' + cols.map(([k, l]) => {
