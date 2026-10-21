@@ -413,6 +413,29 @@ main[data-view="view"]{ max-width:1800px; }
 .vs-name{ font-weight:700; } .vs-meter{ height:10px; background:var(--chip); border-radius:5px; overflow:hidden; } .vs-meter i{ display:block; height:100%; background:var(--brand); }
 .vs-rank b{ font-family:var(--cond); font-size:24px; text-align:right; }
 @media (max-width:560px){ .vs-rank li{ grid-template-columns:32px 1fr 36px; } .vs-rank .vs-meter, .vs-rank li > .vs-sub{ display:none; } }
+/* Add unit: two sides */
+.au{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
+.au.one{ grid-template-columns:minmax(0,640px); justify-content:center; }
+.au-col{ display:grid; gap:14px; min-width:0; }
+.au-col .narrow{ max-width:none; margin:0; }
+.au-tag{ justify-self:start; font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; padding:4px 12px; border-radius:999px; }
+.au-sold .au-tag{ background:color-mix(in srgb,var(--brand) 14%,transparent); color:var(--brand); }
+.au-used .au-tag{ background:color-mix(in srgb,#0E9E86 16%,transparent); color:#0B7F6C; }
+.au-sold > .panel, .au-sold > form.panel{ border:2px solid var(--brand); border-top-width:8px; }
+.au-used > #auUsedForm > .panel{ border:2px solid #0E9E86; border-top-width:8px; }
+.au-used .btn.primary{ background:#0E9E86; border-color:#0E9E86; }
+.au-list{ padding:16px; } .au-list .list{ margin-top:4px; }
+:root[data-theme="dark"] .au-used .au-tag{ color:#3ED3B8; }
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .au-used .au-tag{ color:#3ED3B8; } }
+.au-switch{ display:none; }
+@media (max-width:900px){
+  .au{ grid-template-columns:1fr; }
+  .au-switch{ display:grid; grid-template-columns:1fr 1fr; gap:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding:6px 0; }
+  .au-switch button{ min-height:52px; border:2px solid var(--line); background:var(--surface); border-radius:12px; font-weight:800; }
+  .au-switch button:first-child[aria-pressed="true"]{ border-color:var(--brand); background:var(--brand); color:#fff; }
+  .au-switch button:last-child[aria-pressed="true"]{ border-color:#0E9E86; background:#0E9E86; color:#fff; }
+  .au[data-side="sold"] .au-used, .au[data-side="used"] .au-sold{ display:none; }
+}
 /* used-car form */
 .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
 .chip{ min-height:40px; padding:6px 14px; border:2px solid var(--line); background:var(--surface); border-radius:999px; font-weight:600; }
@@ -492,7 +515,7 @@ const ROLES = {
   shop:    { label:"Detail shop",   desc:"The big screen and status updates for detailers.",  tabs:["board","queue"] },
   area:    { label:"Area manager",  desc:"All stores at a glance, plus setup.",               tabs:["stores","board","view","queue","add","settings"] }
 };
-const TAB_LABEL = { add:"Add sold unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup", used:"Used cars", view:"View store" };
+const TAB_LABEL = { add:"Add unit", queue:"Queue", board:"Shop board", stores:"All stores", settings:"Setup", used:"Used cars", view:"View store" };
 const FORM_VIEWS = new Set(["add","settings"]);
 const perms = r => ({
   status:  ["shop","area"].includes(r),   // detail steps: shop + area manager only
@@ -891,7 +914,7 @@ function usedOn(store){
 }
 const usedPerm = r => ({ add: ["sales","shop","area"].includes(r), move: ["shop","area"].includes(r), del: ["sales","shop","area"].includes(r) });
 function usedTab(){ return uSafe(() => !!S.role && usedPerm(S.role).add && !!S.store && usedOn(S.store), false); }
-function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() ? t.concat(["used"]) : t; }
+function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() && !t.includes("add") ? t.concat(["add"]) : t; }
 const usedKeep = u => u.stage !== "done" || (u.doneAt || 0) > Date.now() - USED_KEEP;
 const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store === id) && usedKeep(u));
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
@@ -1023,7 +1046,7 @@ function usedSig(){ return JSON.stringify(U.detailers) + JSON.stringify(U.flags)
 function usedRedraw(){
   const on = usedOn("*"), sig = usedSig();
   // While OFF and unchanged, never redraw: the board behaves exactly as before.
-  if (sig !== U.sig && (on || U.wasOn) && S.loaded) render();
+  if (sig !== U.sig && (on || U.wasOn) && S.loaded){ if (S.view === "add") usedListRefresh(); else render(); }
   U.sig = sig; U.wasOn = on;
 }
 async function usedTick(){
@@ -1082,7 +1105,7 @@ function usedStrip(store){
 }
 
 /* --- Used cars tab --- */
-function viewUsed(){
+function viewUsed(inline){
   return uSafe(() => {
     if (!usedTab()) return '<div class="empty"><h3>Used cars are off for this store</h3></div>';
     if (!U.loaded) return '<div class="empty"><h3>Loading used cars…</h3></div>';
@@ -1106,9 +1129,9 @@ function viewUsed(){
         '<span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></div></button>' +
         '<div class="job-act">' + act + '</div></div>';
     }).join("");
-    return '<div class="row"><h2>Used cars · ' + esc(title) + '</h2><span class="spacer"></span>' +
+    return '<div class="row">' + (inline ? '<h3 style="font-size:20px;margin:0">Used cars at ' + esc(title) + '</h3>' : '<h2>Used cars · ' + esc(title) + '</h2>') + '<span class="spacer"></span>' +
       (p.move && S.canWrite && S.store !== "*" ? '<button class="btn" data-action="u-team">Detailers (' + usedDetailers(S.store).length + ')</button>' : "") +
-      (p.add && S.canWrite ? '<button class="btn primary" data-action="u-new">+ Add used car</button>' : "") + '</div>' +
+      (p.add && S.canWrite && !inline ? '<button class="btn primary" data-action="u-new">+ Add used car</button>' : "") + '</div>' +
       '<p class="muted" style="margin:6px 0 0">Timer starts when a car is added: 24 hours expected, 48 hours max.</p>' +
       '<div class="filters" role="group" aria-label="Filter">' +
         '<button class="filter" data-action="u-filter" data-f="open" aria-pressed="' + (U.filter !== "done") + '">In the shop (' + open.length + ')</button>' +
@@ -1385,7 +1408,7 @@ document.addEventListener("input", async e => {
   if (!form || !/^u-(add|edit)$/.test(form.dataset.form || "")) return;
   if (f.name === "color") form.querySelectorAll('[data-action="u-color"]').forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c.toLowerCase() === f.value.trim().toLowerCase())));
   if (f.name !== "vin") return;
-  const msg = $("#uScanMsg"), vin = cleanVin(f.value);
+  const msg = form.querySelector("#uScanMsg"), vin = cleanVin(f.value);
   if (!vin || vin === vinTyped) return;
   vinTyped = vin;
   if (msg) msg.textContent = "Looking up VIN " + vin + "…";
@@ -1405,7 +1428,7 @@ document.addEventListener("keydown", e => {
   if (i >= 0 && i < fields.length - 1){ e.preventDefault(); fields[i + 1].focus(); }
 });
 async function usedGotVin(form, vin){
-  const msg = $("#uScanMsg");
+  const msg = form.querySelector("#uScanMsg");
   form.vin.value = vin; vinTyped = vin;
   if (msg) msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
   const d = await lookupVin(vin);
@@ -1519,7 +1542,7 @@ document.addEventListener("click", async e => {
 document.addEventListener("visibilitychange", () => { if (document.hidden && SC.stream) scanStop(); });
 document.addEventListener("change", async e => {
   const f = e.target; if (f.id !== "uScanFile" || !f.files || !f.files[0]) return;
-  const form = f.closest("form"), msg = $("#uScanMsg"), file = f.files[0]; f.value = "";
+  const form = f.closest("form"), msg = form.querySelector("#uScanMsg"), file = f.files[0]; f.value = "";
   try{
     msg.textContent = "Reading the barcode…";
     const vin = await readVinPhoto(file);
@@ -1533,7 +1556,7 @@ document.addEventListener("change", async e => {
   const u = U.list.find(x => x.id === t.dataset.id); if (!u || !usedPerm(S.role).move || U.busy) return;
   const name = t.value || null; if ((u.detailer || null) === name) return;
   U.busy = true;
-  try{ await usedApi.update(u, { detailer: name, log: usedLog(u, name ? "Assigned to " + name : "Detailer removed") }); toast(name ? usedVeh(u) + " assigned to " + name : "Detailer removed"); render(true); }
+  try{ await usedApi.update(u, { detailer: name, log: usedLog(u, name ? "Assigned to " + name : "Detailer removed") }); toast(name ? usedVeh(u) + " assigned to " + name : "Detailer removed"); usedRerender(); }
   catch(err){ toast("That didn't save. Check your connection and try again.", true); }
   U.busy = false; if (U.modal) usedModal();
 });
@@ -1555,7 +1578,7 @@ document.addEventListener("click", async e => {
     if (a === "u-close"){ usedClose(); return; }
     if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
     if (a === "u-open"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
-    if (a === "u-filter"){ U.filter = t.dataset.f; render(true); return; }
+    if (a === "u-filter"){ U.filter = t.dataset.f; usedRerender(); return; }
     if (a === "u-scan"){ const form = t.closest("form"); if (form) scanOpen(form); else $("#uScanFile")?.click(); return; }
     if (a === "u-edit"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "edit", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-color"){
@@ -1571,13 +1594,13 @@ document.addEventListener("click", async e => {
       U.busy = true;
       try{ await usedSaveDetailers(U.modal.store, usedDetailers(U.modal.store).filter(n => n !== t.dataset.n)); toast("Removed " + t.dataset.n); }
       catch(err){ toast("That didn't save. Check your connection and try again.", true); }
-      U.busy = false; usedModal(); render(true); return;
+      U.busy = false; usedModal(); usedRerender(); return;
     }
-    if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (U.modal && U.modal.kind === "view") usedModal(); render(true); return; }
+    if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (U.modal && U.modal.kind === "view") usedModal(); usedRerender(); return; }
     if (a === "u-del"){
       const u = find(); if (!u || !usedPerm(S.role).del) return;
       if (!U.modal.confirmDel){ U.modal.confirmDel = true; usedModal(); setTimeout(() => { if (U.modal && U.modal.confirmDel){ U.modal.confirmDel = false; usedModal(); } }, 5000); return; }
-      try{ await usedApi.remove(u); usedClose(); toast("Removed from used cars"); render(true); }
+      try{ await usedApi.remove(u); usedClose(); toast("Removed from used cars"); usedRerender(); }
       catch(err){ toast("That didn't save. Check your connection and try again.", true); }
       return;
     }
@@ -1609,7 +1632,7 @@ document.addEventListener("submit", async e => {
     try{
       const u = U.list.find(x => x.id === f.dataset.id);
       if (!u || U.busy || !usedPerm(S.role).add || !S.canWrite) return;
-      const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = $("#uErr");
+      const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = f.querySelector("#uErr");
       f.querySelectorAll(".err").forEach(n => n.classList.remove("err"));
       const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year");
       if (!stock){ errs.push("Stock number can’t be blank."); f.stock.classList.add("err"); }
@@ -1622,8 +1645,8 @@ document.addEventListener("submit", async e => {
       const changed = Object.keys(patch).filter(k => String(u[k] || "") !== patch[k]);
       if (!changed.length){ U.modal = { kind: "view", id: u.id }; usedModal(); return; }
       patch.log = usedLog(u, "Details edited");
-      const btn = $("#uSubmit"); btn.disabled = true; btn.textContent = "Saving…"; U.busy = true;
-      try{ await usedApi.update(u, patch); toast("Changes saved"); U.modal = { kind: "view", id: u.id }; usedModal(); render(true); }
+      const btn = f.querySelector("#uSubmit"); btn.disabled = true; btn.textContent = "Saving…"; U.busy = true;
+      try{ await usedApi.update(u, patch); toast("Changes saved"); U.modal = { kind: "view", id: u.id }; usedModal(); usedRerender(); }
       catch(e2){ console.warn("Used cars:", e2); btn.disabled = false; btn.textContent = "Save"; toast("That didn't save. Check your connection and try again.", true); }
       U.busy = false;
     }catch(e3){ U.busy = false; console.warn("Used cars:", e3); }
@@ -1637,11 +1660,12 @@ document.addEventListener("submit", async e => {
       U.busy = true;
       await usedSaveDetailers(st, usedDetailers(st).concat([name])); toast("Added " + name);
     }catch(err){ toast("That didn't save. Check your connection and try again.", true); }
-    U.busy = false; usedModal(); render(true); return;
+    U.busy = false; usedModal(); usedRerender(); return;
   }
   try{
     if (U.busy) return;
-    const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = $("#uErr");
+    const fd = new FormData(f), g = k => String(fd.get(k) || "").trim(), err = f.querySelector("#uErr");
+    const ctx = f.dataset.inline ? (U.inl = U.inl || {}) : U.modal;
     f.querySelectorAll(".err").forEach(n => n.classList.remove("err"));
     const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year"), store = g("store");
     if (!stock){ errs.push("Enter the stock number."); f.stock.classList.add("err"); }
@@ -1651,12 +1675,12 @@ document.addEventListener("submit", async e => {
     if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
     if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
     const dupe = U.list.find(u => u.store === store && u.stage !== "done" && String(u.stock).toUpperCase() === stock);
-    if (dupe && !U.modal.dupeOk){
-      U.modal.dupeOk = true;
+    if (dupe && !ctx.dupeOk){
+      ctx.dupeOk = true;
       err.innerHTML = '<div class="warn-box" role="alert">Stock #' + esc(stock) + ' is already in used cars (' + esc(USED_STAGES[dupe.stage]) + '). Only add it again if it’s a different car.</div>';
-      $("#uSubmit").textContent = "Add it anyway"; return;
+      f.querySelector("#uSubmit").textContent = "Add it anyway"; return;
     }
-    const btn = $("#uSubmit"); btn.disabled = true; btn.textContent = "Adding…"; U.busy = true;
+    const btn = f.querySelector("#uSubmit"); btn.disabled = true; btn.textContent = "Adding…"; U.busy = true;
     const now = Date.now(), by = S.me || ROLES[S.role].label;
     const vh = usedReadVeh(fd);
     if (vh.added) usedRememberModel(vh.make, vh.model);
@@ -1667,11 +1691,12 @@ document.addEventListener("submit", async e => {
     f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = true);
     try{
       await usedApi.add(store, d);
+      if (f.dataset.inline){ U.inl = { last: stock, detailer: d.detailer || "", store }; usedInlineRefresh(true); usedRerender(); U.busy = false; return; }
       if (again){ U.modal = { kind: "add", last: stock, detailer: d.detailer || "" }; usedModal(); setTimeout(() => usedRoot().querySelector(".sheet")?.scrollTo(0, 0), 0); }
       else { usedClose(); toast("Added. It’s on the shop board under In detail."); }
-      render(true);
+      usedRerender();
     }
-    catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = "Add"; toast("That didn't save. Check your connection and try again.", true); }
+    catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = f.dataset.inline ? "Add used car" : "Add"; toast("That didn't save. Check your connection and try again.", true); }
     U.busy = false;
   }catch(e3){ U.busy = false; console.warn("Used cars:", e3); }
 });
@@ -1902,7 +1927,34 @@ function dueFromPreset(p, custom){
   if (p === "custom"){ const t = custom ? new Date(custom).getTime() : NaN; return isNaN(t) ? null : t; }
   return Date.now() + Number(p) * MIN;
 }
+/* Add unit: sold unit (delivery) on the left, used car (detail) on the right */
 function viewAdd(){
+  const sold = perms(S.role).add, used = uSafe(() => usedTab(), false);
+  if (!used) return viewAddSold();
+  if (!S.canWrite) return '<div class="empty"><h3>View only</h3><p>This device can’t add units.</p></div>';
+  const side = S.addSide || (sold ? "sold" : "used");
+  return '<div class="au' + (sold ? "" : " one") + '" data-side="' + side + '">' +
+    (sold ? '<div class="au-switch" role="group" aria-label="What are you adding?"><button data-action="au-side" data-s="sold" aria-pressed="' + (side === "sold") + '">Sold unit · delivery</button><button data-action="au-side" data-s="used" aria-pressed="' + (side === "used") + '">Used car · detail</button></div>' : "") +
+    (sold ? '<section class="au-col au-sold"><div class="au-tag">Delivery</div>' + viewAddSold() + '</section>' : "") +
+    '<section class="au-col au-used"><div class="au-tag">Used car</div><div id="auUsedForm">' + usedInlineForm() + '</div><div id="auUsedList" class="panel au-list">' + viewUsed(true) + '</div></section></div>';
+}
+function usedInlineForm(){
+  return uSafe(() => {
+    const st = stores(), inl = U.inl || {};
+    const store = S.store !== "*" ? S.store : (inl.store || ((st.find(x => usedOn(x.id)) || {}).id || ""));
+    const storeField = (S.role === "area" && st.filter(x => usedOn(x.id)).length > 1)
+      ? '<label class="field"><span>Store <em>*</em></span><select class="input" name="store">' + st.filter(x => usedOn(x.id)).map(x => '<option value="' + esc(x.id) + '"' + (x.id === store ? " selected" : "") + '>' + esc(x.name) + '</option>').join("") + '</select></label>'
+      : '<input type="hidden" name="store" value="' + esc(store) + '">';
+    return '<form class="panel form" data-form="u-add" data-inline="1" novalidate autocomplete="off"><h2>New used car</h2>' +
+      (inl.last ? '<div class="u-ok-msg" role="status">✓ #' + esc(inl.last) + ' added. It’s on the shop board under In detail. Enter the next one any time.</div>' : '<p class="muted" style="margin:-4px 0 0">Goes on the shop board under In detail. 24 hours expected, 48 max.</p>') + storeField +
+      usedFields({}, usedPerm(S.role).move ? (S.store !== "*" ? S.store : store) : null, inl.detailer || "", true) +
+      '<div id="uErr"></div><button class="btn primary big" type="submit" id="uSubmit">Add used car</button></form>';
+  }, '<div class="panel"><p class="muted">Used cars didn’t load. The delivery side works fine.</p></div>');
+}
+function usedInlineRefresh(top){ const el = document.getElementById("auUsedForm"); if (!el) return; el.innerHTML = usedInlineForm(); usedListRefresh(); if (top) el.scrollIntoView({ block: "start", behavior: "smooth" }); }
+function usedListRefresh(){ const el = document.getElementById("auUsedList"); if (el) el.innerHTML = viewUsed(true); }
+function usedRerender(){ if (S.view === "add" && document.getElementById("auUsedList")){ usedListRefresh(); renderShell(); } else render(true); }
+function viewAddSold(){
   if (!S.canWrite) return '<div class="empty"><h3>View only</h3><p>This device can’t add units.</p></div>';
   if (S.addDone){
     const j = S.addDone;
@@ -2468,6 +2520,7 @@ document.addEventListener("click", async e => {
       if (!S.sheet.confirmDel){ S.sheet.confirmDel = true; S.sheet.rendered = false; renderSheet(); setTimeout(() => { if (S.sheet){ S.sheet.confirmDel = false; S.sheet.rendered = false; renderSheet(); } }, 5000); break; }
       try{ await api.remove(j.id); closeSheet(); toast("Removed from the board"); }catch(err){} break; }
     case "add-another": S.addDone = null; render(true); break;
+    case "au-side": { S.addSide = t.dataset.s; const au = document.querySelector(".au"); if (au){ au.dataset.side = S.addSide; au.querySelectorAll('[data-action="au-side"]').forEach(b => b.setAttribute("aria-pressed", String(b === t))); } window.scrollTo(0, 0); break; }
     case "dive": S.store = t.dataset.store; LS.set("store", S.store); S.view = t.dataset.to; render(true); window.scrollTo(0,0); break;
     case "sound":
       S.sound = !S.sound;
