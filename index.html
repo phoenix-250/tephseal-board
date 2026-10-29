@@ -921,6 +921,7 @@ const USED_PILL = { detail:"queued", progress:"working", done:"delivered" };
 const USED_GOAL = 24 * HOUR, USED_MAX = 48 * HOUR;   // timer: 24h expected, 48h absolute max
 const USED_SET = "_settings";                           // detailer lists live in used_units under this store id
 const BARCODE_LIB = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+const OCR_LIB = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";   // reads printed VIN text when there's no barcode
 const USED_NEXT = { detail:{ to:"progress", label:"Start" }, progress:{ to:"done", label:"Detail & photos done" } };
 const USED_KEEP = 90 * DAY;
 const U = { list: [], detailers: {}, loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
@@ -1282,8 +1283,8 @@ const USED_COLORS = ["White","Black","Silver","Gray","Red","Blue"];
 function usedFields(u, detStore, det, scanTop){
   const v = k => esc(u[k] || "");
   const col = String(u.color || "");
-  return (scanTop ? '<div class="field"><button class="btn u-scanbig" type="button" data-action="u-scan">📷 Scan VIN barcode or QR code</button>' +
-      '<div id="uScanMsg" class="muted" style="font-size:14px">Door jamb barcode, windshield sticker, or any VIN QR code. Or just type everything in below.</div></div>' : "") +
+  return (scanTop ? '<div class="field"><button class="btn u-scanbig" type="button" data-action="u-scan">📷 Scan VIN</button>' +
+      '<div id="uScanMsg" class="muted" style="font-size:14px">Door jamb barcode, windshield VIN plate, sticker, or any VIN QR code. Or just type everything in below.</div></div>' : "") +
     '<input type="file" accept="image/*" capture="environment" id="uScanFile" class="hidden">' +
     '<div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<label class="field"><span>Stock # <em>*</em></span><input class="input" name="stock" value="' + v("stock") + '" autocapitalize="characters" enterkeyhint="next" style="text-transform:uppercase" placeholder="U24519"></label>' +
@@ -1412,6 +1413,77 @@ async function vinNative(src){
   try{ for (const c of await det.detect(src)){ const v = cleanVin(c.rawValue); if (v) return v; } }catch(e){}
   return null;
 }
+/* --- Printed VIN text (dash plate, window sticker, door label with no barcode) ---
+   OCR it, fix the usual look-alike misreads, and only trust what passes the VIN check digit. */
+const OCR_SWAP = { "0":"D", D:"0", "1":"L", L:"1", "2":"Z", Z:"2", "5":"S", S:"5", "6":"G", G:"6", "8":"B", B:"8", "4":"A", A:"4", "7":"T", T:"7", U:"V", V:"U", M:"N", N:"M", H:"N" };
+const OCR_DIGIT = { O:"0", Q:"0", D:"0", I:"1", L:"1", Z:"2", S:"5", G:"6", B:"8", T:"7", A:"4" };
+function vinFix(w){
+  let v = w.replace(/[OQ]/g, "0").replace(/I/g, "1");   // VINs never use I, O or Q
+  v = v.slice(0, 13) + v.slice(13).replace(/[A-Z]/g, c => OCR_DIGIT[c] || c);   // last 4 are always numbers
+  if (v[8] !== "X") v = v.slice(0, 8) + v[8].replace(/[A-Z]/, c => OCR_DIGIT[c] || c) + v.slice(9);   // check digit: number or X
+  if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return null;
+  if (vinCheckOk(v)) return v;
+  const fixes = new Set();   // one misread character: try look-alikes, keep it only if exactly one fix works
+  for (let i = 0; i < 17; i++){
+    const s = OCR_SWAP[v[i]]; if (!s || (i >= 13 && !/\d/.test(s))) continue;
+    const t = v.slice(0, i) + s + v.slice(i + 1);
+    if (vinCheckOk(t)) fixes.add(t);
+  }
+  return fixes.size === 1 ? [...fixes][0] : null;
+}
+// Real VINs end in 4 numbers and mix letters with numbers; ordinary words ("VEHICLE CONFORMS TO") don't.
+function vinLike(raw){ return (raw.slice(13).match(/\d/g) || []).length >= 3 && (raw.match(/\d/g) || []).length >= 5; }
+// sure = read cleanly as one word with a good check digit; otherwise it needed fixing, so it gets confirmed with NHTSA first.
+function vinFromText(text){
+  const seen = new Map();
+  const add = (v, score) => { if (v && /^[A-HJ-NPR-Z0-9]{9}[A-HJ-NPR-TV-Y1-9]/.test(v)) seen.set(v, Math.max(seen.get(v) || 0, score)); };   // 10th = model year: never 0, U or Z
+  for (const line of String(text || "").toUpperCase().split(/\n+/)){
+    const tokens = line.split(/[^A-Z0-9]+/).filter(Boolean);
+    for (let i = 0; i < tokens.length; i++){   // words that add up to exactly 17 (stickers often space the VIN out)
+      let s = "";
+      for (let j = i; j < tokens.length && s.length < 17; j++){ s += tokens[j]; if (s.length === 17 && vinLike(s)) add(vinFix(s), (j === i ? 3 : 2) + (vinCheckOk(s) ? 1 : 0)); }
+    }
+    const all = tokens.join(""), at = all.indexOf("VIN");   // "VIN1GCUY..." with the label stuck on
+    if (at >= 0 && all.length >= at + 20 && vinLike(all.slice(at + 3, at + 20))) add(vinFix(all.slice(at + 3, at + 20)), 2);
+  }
+  let best = null, bs = 0;
+  for (const [v, s] of seen) if (s > bs){ best = v; bs = s; }
+  return best ? { vin: best, sure: bs >= 4 } : null;
+}
+let ocrP = null;
+function loadOcr(){   // ~5 MB the first time, then the phone keeps it cached
+  if (!ocrP) ocrP = new Promise((ok, bad) => {
+    const go = () => window.Tesseract.createWorker("eng", 1).then(async w => {
+      await w.setParameters({ tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :#-", tessedit_pageseg_mode: "11", user_defined_dpi: "300" });
+      return w;
+    }).then(ok, bad);
+    if (window.Tesseract) return go();
+    const sc = document.createElement("script"); sc.src = OCR_LIB; sc.onload = () => window.Tesseract ? go() : bad(new Error("no ocr")); sc.onerror = () => bad(new Error("load")); document.head.appendChild(sc);
+  }).catch(e => { ocrP = null; throw e; });
+  return ocrP;
+}
+// Grayscale + stretch the contrast; helps with glare through the windshield and faded stickers.
+const ocrCv = document.createElement("canvas");
+function ocrPrep(src, sw, sh, crop, maxPx){
+  const [fx, fy, fw, fh] = crop, cw = sw * fw, ch = sh * fh;
+  const sc = Math.min(2, maxPx / Math.max(cw, ch)), w = ocrCv.width = Math.max(1, Math.round(cw * sc)), h = ocrCv.height = Math.max(1, Math.round(ch * sc));
+  const cx = ocrCv.getContext("2d", { willReadFrequently: true });
+  cx.drawImage(src, sw * fx, sh * fy, cw, ch, 0, 0, w, h);
+  const im = cx.getImageData(0, 0, w, h), d = im.data, hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4){ const g = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8; d[i] = g; hist[g]++; }
+  const n = w * h; let lo = 0, hi = 255, acc = 0;
+  while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++;
+  acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
+  const k = hi > lo ? 255 / (hi - lo) : 1;
+  for (let i = 0; i < d.length; i += 4){ const g = Math.max(0, Math.min(255, (d[i] - lo) * k)); d[i] = d[i + 1] = d[i + 2] = g; }
+  cx.putImageData(im, 0, 0);
+  return ocrCv;
+}
+async function vinOcr(src, sw, sh, crop, maxPx){
+  const w = await loadOcr();
+  const { data } = await w.recognize(ocrPrep(src, sw, sh, crop, maxPx));
+  return vinFromText(data && data.text);
+}
 async function readVinPhoto(file){
   const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
   const nv = await vinNative(img); if (nv) return nv;
@@ -1432,13 +1504,26 @@ async function readVinPhoto(file){
   }
   return null;
 }
+// No barcode in the photo: read the printed VIN instead. Returns { vin, sure } or null.
+async function readVinPhotoText(file, onStep){
+  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = URL.createObjectURL(file); });
+  const W = img.naturalWidth, H = img.naturalHeight;
+  let best = null;
+  for (const [crop, px] of [[[0, 0, 1, 1], 2400], [[0.1, 0.3, 0.8, 0.4], 2400], [[0, 0.15, 1, 0.7], 3000]]){
+    if (onStep) onStep();
+    const r = await vinOcr(img, W, H, crop, px);
+    if (r && r.sure) return r;
+    if (r && !best) best = r;
+  }
+  return best;
+}
 async function lookupVin(vin){
   try{
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 8000);
     const r = await fetch("https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/" + vin + "?format=json", { signal: ctl.signal });
     const d = ((await r.json()).Results || [])[0] || {};
     const cap = s => String(s || "").toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
-    return { year: d.ModelYear || "", make: cap(d.Make), model: d.Model || "" };
+    return { year: d.ModelYear || "", make: cap(d.Make), model: d.Model || "", ok: !!d.Make };
   }catch(e){ return null; }
 }
 document.addEventListener("change", e => {
@@ -1474,22 +1559,25 @@ document.addEventListener("keydown", e => {
   const i = fields.indexOf(f);
   if (i >= 0 && i < fields.length - 1){ e.preventDefault(); fields[i + 1].focus(); }
 });
-async function usedGotVin(form, vin){
+// fromText: read from the printed VIN, not a barcode, so ask for a quick look at it.
+// d: the NHTSA lookup if the caller already did it.
+async function usedGotVin(form, vin, fromText, d){
   const msg = form.querySelector("#uScanMsg");
   form.vin.value = vin; vinTyped = vin;
   if (msg) msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
-  const d = await lookupVin(vin);
+  if (d === undefined) d = await lookupVin(vin);
   if (!form.isConnected) return;
+  const chk = fromText ? " Read from the printed VIN, so make sure it matches the car." : "";
   if (d && (d.make || d.model)){
     usedSetVeh(form, d);
-    if (msg) msg.textContent = "Filled in from VIN " + vin + ". Check it, then add the stock number.";
-  } else if (msg) msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model.";
+    if (msg) msg.textContent = "Filled in from VIN " + vin + "." + (chk || " Check it, then add the stock number.");
+  } else if (msg) msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model." + chk;
   if (!form.stock.value.trim()) setTimeout(() => form.stock.focus(), 50);
 }
 /* --- Live camera scanner: aim at the door-jamb barcode, it reads on its own --- */
-const SC = { stream: null, timer: null, form: null, n: 0, torch: false };
+const SC = { stream: null, timer: null, form: null, n: 0, torch: false, zoom: null, zoomed: false, id: 0, ocrW: null, ocrBusy: false, ocrSeen: new Map() };
 function scanStop(){
-  clearTimeout(SC.timer); SC.timer = null;
+  clearTimeout(SC.timer); SC.timer = null; SC.id++; SC.ocrBusy = false; SC.ocrSeen.clear();
   if (SC.stream){ SC.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); SC.stream = null; }
   const r = document.getElementById("scanRoot"); if (r) r.remove();
 }
@@ -1498,9 +1586,10 @@ function scanUI(status, live){
   if (!r){
     r = document.createElement("div"); r.id = "scanRoot"; r.className = "scan";
     r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-box"><i></i></div>' +
-      '<div class="scan-top"><b>Scan VIN barcode or QR code</b><span id="scanStatus"></span></div>' +
+      '<div class="scan-top"><b>Scan the VIN</b><span id="scanStatus"></span></div>' +
       '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">✎ Type it in</button>' +
       '<button class="btn hidden" type="button" data-scan="torch">🔦 Light</button>' +
+      '<button class="btn hidden" type="button" data-scan="zoom">🔍 Zoom</button>' +
       '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div>';
     document.body.appendChild(r);
   }
@@ -1509,11 +1598,12 @@ function scanUI(status, live){
   return r;
 }
 async function scanOpen(form){
-  SC.form = form; SC.n = 0; SC.torch = false;
+  SC.form = form; SC.n = 0; SC.torch = false; SC.zoom = null; SC.zoomed = false; SC.ocrSeen.clear();
   const md = navigator.mediaDevices;
   if (!md || !md.getUserMedia){ $("#uScanFile")?.click(); return; }   // no live camera here: straight to photo
   const r = scanUI("Starting camera…", false);
   loadBarcodeLib().catch(() => {});
+  loadOcr().then(w => { SC.ocrW = w; }).catch(e => console.warn("VIN text reader:", e));   // loads while the camera starts
   try{
     SC.stream = await md.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
   }catch(e){
@@ -1528,8 +1618,10 @@ async function scanOpen(form){
   try{ const cap = track.getCapabilities ? track.getCapabilities() : {};
     if (cap.focusMode && cap.focusMode.includes("continuous")) track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }).catch(() => {});
     if (cap.torch) r.querySelector('[data-scan="torch"]').classList.remove("hidden");
+    // iPhones can't focus very close. Zoom lets them hold the phone back a bit and still fill the box.
+    if (cap.zoom && cap.zoom.max >= 1.5){ SC.zoom = cap.zoom; r.querySelector('[data-scan="zoom"]').classList.remove("hidden"); }
   }catch(e){}
-  scanUI("Fill the box with the barcode or QR code. Hold steady.", true);
+  scanUI("Fill the box with the barcode, QR code, or printed VIN. Hold steady.", true);
   scanLoop(v);
 }
 // The video is shown "cover"-style, so map the on-screen box back to camera pixels.
@@ -1561,15 +1653,33 @@ async function scanLoop(v){
     }
   }catch(e){}
   if (!SC.stream) return;
-  if (vin){
-    try{ navigator.vibrate && navigator.vibrate(120); }catch(e){}
-    scanBeep();
-    const form = SC.form; scanStop();
-    if (form && form.isConnected) usedGotVin(form, vin);
-    return;
-  }
-  if (SC.n === 60) scanUI("Still looking… move closer or farther, turn on the light, or tap Type it in.", true);
+  if (vin){ scanDone(vin); return; }
+  if (SC.ocrW && !SC.ocrBusy && v.readyState >= 2 && v.videoWidth) scanOcr(v);
+  if (SC.n === 60) scanUI("Still looking… move closer or farther" + (SC.zoom ? ", try Zoom" : "") + ", turn on the light, or tap Type it in.", true);
   SC.timer = setTimeout(() => scanLoop(v), 60);
+}
+function scanDone(vin, fromText, d){
+  try{ navigator.vibrate && navigator.vibrate(120); }catch(e){}
+  scanBeep();
+  const form = SC.form; scanStop();
+  if (form && form.isConnected) usedGotVin(form, vin, fromText, d);
+}
+// Printed VIN, read in the background between barcode tries. A camera frame can misread,
+// so it needs the same VIN twice, and a VIN that needed fixing must also be a real vehicle at NHTSA.
+async function scanOcr(v){
+  const id = SC.id; SC.ocrBusy = true;
+  try{
+    const r = await vinOcr(v, v.videoWidth, v.videoHeight, scanCrop(v), 1600);
+    if (id !== SC.id || !SC.stream || !r) return;
+    const n = (SC.ocrSeen.get(r.vin) || 0) + 1; SC.ocrSeen.set(r.vin, n);
+    if (n < 2) return;
+    if (r.sure) return scanDone(r.vin, true);
+    const d = await lookupVin(r.vin);
+    if (id !== SC.id || !SC.stream) return;
+    if (d && d.ok) return scanDone(r.vin, true, d);
+    SC.ocrSeen.set(r.vin, -99);   // not a real VIN: stop counting it
+  }catch(e){ console.warn("VIN text reader:", e); }
+  finally{ if (id === SC.id) SC.ocrBusy = false; }
 }
 function scanBeep(){
   try{ const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
@@ -1581,6 +1691,11 @@ document.addEventListener("click", async e => {
   const k = b.dataset.scan;
   if (k === "cancel"){ const form = SC.form; scanStop(); if (form && form.isConnected){ const m = form.querySelector("#uScanMsg"); if (m) m.textContent = "Type the stock # and at least the last 8 of the VIN, then pick the make and model."; setTimeout(() => (form.stock.value.trim() ? form.vin : form.stock).focus(), 50); } return; }
   if (k === "photo"){ const form = SC.form; scanStop(); (form && form.isConnected ? form.querySelector("#uScanFile") : $("#uScanFile"))?.click(); return; }
+  if (k === "zoom" && SC.stream && SC.zoom){
+    SC.zoomed = !SC.zoomed;
+    try{ await SC.stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: SC.zoomed ? Math.min(2, SC.zoom.max) : Math.max(1, SC.zoom.min) }] }); b.setAttribute("aria-pressed", String(SC.zoomed)); }catch(err){ SC.zoomed = false; }
+    return;
+  }
   if (k === "torch" && SC.stream){
     SC.torch = !SC.torch;
     try{ await SC.stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: SC.torch }] }); b.setAttribute("aria-pressed", String(SC.torch)); }catch(err){ SC.torch = false; }
@@ -1594,8 +1709,13 @@ document.addEventListener("change", async e => {
     msg.textContent = "Reading the barcode…";
     const vin = await readVinPhoto(file);
     if (!form.isConnected) return;
-    if (!vin){ msg.innerHTML = '<span class="err-msg">Couldn’t read that photo. Type the last 8 of the VIN and pick the make and model.</span>'; return; }
-    await usedGotVin(form, vin);
+    if (vin){ await usedGotVin(form, vin); return; }
+    msg.textContent = "No barcode. Reading the printed VIN (first time takes a few seconds)…";
+    let t = null;
+    try{ t = await readVinPhotoText(file); }catch(err){ console.warn("VIN text reader:", err); }
+    if (!form.isConnected) return;
+    if (!t){ msg.innerHTML = '<span class="err-msg">Couldn’t read that photo. Type the last 8 of the VIN and pick the make and model.</span>'; return; }
+    await usedGotVin(form, t.vin, true);
   }catch(err){ console.warn("Used cars scan:", err); if (form.isConnected) msg.innerHTML = '<span class="err-msg">Couldn’t read the photo. Type the last 8 of the VIN instead.</span>'; }
 });
 document.addEventListener("change", async e => {
