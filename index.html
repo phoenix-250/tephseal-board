@@ -57,6 +57,8 @@ button{ cursor:pointer; }
 .tab{ border:0; background:none; padding:12px 14px; font-weight:600; color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap; }
 .tab[aria-current="page"]{ color:var(--ink); border-bottom-color:var(--brand); }
 main{ max-width:1400px; margin:0 auto; padding:20px 16px 60px; }
+.tv-stale{ display:none; position:fixed; left:50%; top:14px; transform:translateX(-50%); z-index:80; padding:12px 24px; border-radius:12px; background:var(--bad); color:#fff; font-size:clamp(18px,2.4vh,30px); font-weight:700; box-shadow:0 6px 24px rgba(0,0,0,.35); white-space:nowrap; }
+body.tv .tv-stale.on{ display:block; }
 .banner{ max-width:1400px; margin:12px auto 0; padding:10px 16px; border-radius:10px; background:var(--chip); color:var(--muted); font-size:14px; }
 
 /* Generic */
@@ -542,6 +544,7 @@ const S = {
 if (S.role === "manager"){ S.role = "sales"; LS.set("role", "sales"); if (S.unlock && S.unlock.role === "manager"){ S.unlock.role = "sales"; LS.set("unlock", S.unlock); } }
 if (!S.lock && S.unlock && S.unlock.role !== "area" && S.unlock.store){ S.lock = S.unlock.store; LS.set("lock", S.lock); }
 const boot = Date.now();
+try{ if (sessionStorage.getItem("tvAgain") === "1"){ sessionStorage.removeItem("tvAgain"); S.tv = true; S.tvAgain = true; } }catch(e){}
 const products = () => (S.config.products && S.config.products.length) ? S.config.products : DEFAULT_PRODUCTS;
 const stores = () => S.config.stores || [];
 const storeName = id => (stores().find(s => s.id === id) || {}).name || "Unknown store";
@@ -2922,10 +2925,10 @@ render(true);
   db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
   S.live = true;
   let lastSync = 0;
-  const refresh = () => loadAll().then(() => { lastSync = Date.now(); S.lastErr = ""; renderShell(); })
+  const refresh = () => loadAll().then(() => { lastSync = S.lastSync = Date.now(); S.lastErr = ""; renderShell(); tvHealth(); })
     .catch(e => { S.online = false; S.lastErr = (e && (e.message || e.code)) || "unknown"; renderShell(); });
-  try{ await loadAll(); }catch(e){ S.loaded = true; S.online = false; render(true); }
-  db.channel("board")
+  try{ await loadAll(); lastSync = S.lastSync = Date.now(); }catch(e){ S.loaded = true; S.online = false; render(true); }
+  const chan = () => db.channel("board")
     .on("postgres_changes", { event: "*", schema: "public", table: "jobs" }, p => {
       if (p.eventType === "DELETE"){ S.jobs = S.jobs.filter(j => j.id !== (p.old && p.old.id)); render(); return; }
       const row = p.new; if (!row || !row.data) return;
@@ -2938,11 +2941,61 @@ render(true);
       if (p.new && p.new.data){ readCfg(p.new.data); render(S.view === "settings"); }
     })
     .subscribe(status => { if (status === "SUBSCRIBED"){ S.rt = true; refresh(); } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") S.rt = false; });
+  let board = chan();
+  S.boardReset = async () => {   // nightly fresh start without reloading the page (keeps full screen and sound)
+    try{ await db.removeChannel(board); }catch(e){}
+    S.rt = false; board = chan(); refresh(); render(true);
+  };
   // Safety net: if live updates drop, check every 15 seconds; otherwise every 2 minutes. Also when the screen wakes up.
   setInterval(() => { if (!S.rt || Date.now() - lastSync > 120000) refresh(); }, 15000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   window.addEventListener("online", refresh);
+  setInterval(tvHealth, 10000);
+  setInterval(tvNightly, 60000);
+  pageSig().then(x => { bootSig = x; });
 })();
+/* --- TV: warn when the board stops updating, and give it a fresh start every night --- */
+const TV_STALE = 4 * 60000;   // normal check-ins are every 2 minutes, so 4 means something's wrong
+function tvHealth(){
+  let el = document.getElementById("tvStale");
+  if (!el){ el = document.createElement("div"); el.id = "tvStale"; el.className = "tv-stale"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  const age = S.lastSync ? Date.now() - S.lastSync : 0;
+  const bad = S.live && S.loaded && (S.online === false || age > TV_STALE);
+  el.classList.toggle("on", !!bad);
+  if (bad) el.textContent = "⚠ Not updating" + (S.lastSync ? " since " + new Date(S.lastSync).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "") + ". Check the Wi-Fi.";
+  // Stuck for 15+ minutes while the internet works: reload the page (TV mode comes back on its own)
+  if (S.tv && S.lastSync && age > 15 * 60000 && navigator.onLine !== false && !tvReloading) tvReload("stuck");
+}
+let bootSig = null, tvReloading = false, tvNightDone = "";
+async function pageSig(){   // a fingerprint of the published page, to tell when there's an update
+  try{ const r = await fetch(location.href.split("#")[0], { cache: "no-store" }); if (!r.ok) return null;
+    const t = await r.text(); let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return t.length + ":" + h; }
+  catch(e){ return null; }
+}
+async function tvReload(why){
+  tvReloading = true;
+  const sig = await pageSig();   // only reload if the page itself can be reached, never into an error screen
+  if (!sig){ tvReloading = false; return; }
+  console.warn("Board reload:", why);
+  try{ if (S.tv) sessionStorage.setItem("tvAgain", "1"); }catch(e){}
+  location.reload();
+}
+// Around 3 a.m.: load any board updates, otherwise a fresh start in place
+async function tvNightly(){
+  const d = new Date(), day = d.toDateString();
+  if (d.getHours() !== 3 || tvNightDone === day || Date.now() - boot < 3600000) return;
+  if (typingNow() || S.sheet) return;
+  tvNightDone = day;
+  const sig = await pageSig();
+  if (sig && bootSig && sig !== bootSig) return tvReload("update");
+  if (S.boardReset) S.boardReset();
+}
+// After a reload the TV is back in TV mode; the first press of a remote button restores full screen.
+if (S.tvAgain){
+  const fs = () => { removeEventListener("keydown", fs, true); removeEventListener("click", fs, true); try{ document.documentElement.requestFullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen().catch(() => {}); }catch(e){} };
+  addEventListener("keydown", fs, true); addEventListener("click", fs, true);
+  try{ document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); }catch(e){}
+}
 S.sound = false; // browsers need a tap each visit to allow sound
 })();
 </script>
