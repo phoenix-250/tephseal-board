@@ -446,6 +446,8 @@ main[data-view="view"]{ max-width:1800px; }
 .scan{ position:fixed; inset:0; z-index:90; background:#000; color:#fff; }
 .scan video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
 .scan.live video{ opacity:1; }
+.scan-ui{ position:absolute; left:50%; top:50%; width:100vw; height:100vh; transform:translate(-50%,-50%); pointer-events:none; }
+.scan-ui .scan-bar, .scan-ui .scan-top{ pointer-events:auto; }
 .scan-box{ position:absolute; left:4%; right:4%; top:30%; height:40%; border:3px solid rgba(255,255,255,.9); border-radius:14px; box-shadow:0 0 0 100vmax rgba(0,0,0,.45); pointer-events:none; }
 .scan.live .scan-box i{ position:absolute; left:4%; right:4%; top:50%; height:2px; background:#ff3b30; box-shadow:0 0 8px #ff3b30; }
 .scan-top{ position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 16px) 18px 14px; display:grid; gap:6px; text-align:center; font-size:17px; }
@@ -1395,6 +1397,13 @@ async function nativeDetector(){
 // and the 1D reader needs the bars roughly straight up and down, so callers try a few tilts.
 const vinCv = document.createElement("canvas");
 function vinTry(Z, src, sw, sh, crop, maxPx, deg, glob){
+  vinDraw(src, sw, sh, crop, maxPx, deg);
+  try{
+    const r = zxReader(Z).decode(new Z.BinaryBitmap(new (glob ? Z.GlobalHistogramBinarizer : Z.HybridBinarizer)(new Z.HTMLCanvasElementLuminanceSource(vinCv))));
+    return cleanVin(r.getText());
+  }catch(e){ return null; }
+}
+function vinDraw(src, sw, sh, crop, maxPx, deg){
   const [fx, fy, fw, fh] = crop, cw = sw * fw, ch = sh * fh;
   const sc = Math.min(1, maxPx / Math.max(cw, ch)), w = Math.round(cw * sc), h = Math.round(ch * sc);
   const rad = deg * Math.PI / 180, c = Math.abs(Math.cos(rad)), si = Math.abs(Math.sin(rad));
@@ -1403,10 +1412,35 @@ function vinTry(Z, src, sw, sh, crop, maxPx, deg, glob){
   cx.setTransform(1, 0, 0, 1, 0, 0); cx.fillStyle = "#fff"; cx.fillRect(0, 0, vinCv.width, vinCv.height);
   cx.translate(vinCv.width / 2, vinCv.height / 2); cx.rotate(rad);
   cx.drawImage(src, sw * fx, sh * fy, cw, ch, -w / 2, -h / 2, w, h);
+  return cx;
+}
+/* Barcode reading on a background thread: the camera stays smooth and it gets more tries per second.
+   If the worker can't start, the scanner falls back to reading on the page like before. */
+const ZX_WORKER = 'importScripts(' + JSON.stringify(BARCODE_LIB) + ');let rd;' +
+  'self.onmessage=function(e){var m=e.data,t=null;try{var Z=self.ZXing;if(!rd){var h=new Map();' +
+  'h.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.CODE_39,Z.BarcodeFormat.CODE_128,Z.BarcodeFormat.DATA_MATRIX,Z.BarcodeFormat.QR_CODE,Z.BarcodeFormat.PDF_417]);' +
+  'h.set(Z.DecodeHintType.TRY_HARDER,true);rd=new Z.MultiFormatReader();rd.setHints(h);}' +
+  'var d=new Uint8ClampedArray(m.data),n=m.w*m.h,l=new Uint8ClampedArray(n);for(var i=0,j=0;i<n;i++,j+=4)l[i]=(d[j]*77+d[j+1]*150+d[j+2]*29)>>8;' +
+  't=rd.decode(new Z.BinaryBitmap(new (m.glob?Z.GlobalHistogramBinarizer:Z.HybridBinarizer)(new Z.RGBLuminanceSource(l,m.w,m.h)))).getText();}catch(err){}' +
+  'self.postMessage({id:m.id,text:t});};';
+let zxW, zxWait = new Map(), zxN = 0;
+function zxWorker(){
+  if (zxW !== undefined) return zxW;
   try{
-    const r = zxReader(Z).decode(new Z.BinaryBitmap(new (glob ? Z.GlobalHistogramBinarizer : Z.HybridBinarizer)(new Z.HTMLCanvasElementLuminanceSource(vinCv))));
-    return cleanVin(r.getText());
-  }catch(e){ return null; }
+    zxW = new Worker(URL.createObjectURL(new Blob([ZX_WORKER], { type: "text/javascript" })));
+    zxW.onmessage = e => { const f = zxWait.get(e.data.id); if (f){ zxWait.delete(e.data.id); f(e.data.text); } };
+    zxW.onerror = () => { zxW = null; zxWait.forEach(f => f(null)); zxWait.clear(); };
+  }catch(e){ zxW = null; }
+  return zxW;
+}
+function vinTryWorker(src, sw, sh, crop, maxPx, deg, glob){
+  const w = zxWorker(); if (!w) return Promise.resolve(undefined);
+  const cx = vinDraw(src, sw, sh, crop, maxPx, deg), im = cx.getImageData(0, 0, vinCv.width, vinCv.height), id = ++zxN;
+  return new Promise(ok => {
+    const t = setTimeout(() => { zxWait.delete(id); ok(null); }, 4000);
+    zxWait.set(id, txt => { clearTimeout(t); ok(txt ? cleanVin(txt) : null); });
+    w.postMessage({ id, w: im.width, h: im.height, data: im.data.buffer, glob: !!glob }, [im.data.buffer]);
+  });
 }
 async function vinNative(src){
   const det = await nativeDetector(); if (!det) return null;
@@ -1464,11 +1498,15 @@ function loadOcr(){   // ~5 MB the first time, then the phone keeps it cached
 }
 // Grayscale + stretch the contrast; helps with glare through the windshield and faded stickers.
 const ocrCv = document.createElement("canvas");
-function ocrPrep(src, sw, sh, crop, maxPx){
-  const [fx, fy, fw, fh] = crop, cw = sw * fw, ch = sh * fh;
-  const sc = Math.min(2, maxPx / Math.max(cw, ch)), w = ocrCv.width = Math.max(1, Math.round(cw * sc)), h = ocrCv.height = Math.max(1, Math.round(ch * sc));
+function ocrPrep(src, sw, sh, crop, maxPx, rot){
+  const [fx, fy, fw, fh] = crop, cw = sw * fw, ch = sh * fh, side = rot === 90 || rot === 270;
+  const sc = Math.min(2, maxPx / Math.max(cw, ch)), dw = Math.max(1, Math.round(cw * sc)), dh = Math.max(1, Math.round(ch * sc));
+  const w = ocrCv.width = side ? dh : dw, h = ocrCv.height = side ? dw : dh;
   const cx = ocrCv.getContext("2d", { willReadFrequently: true });
-  cx.drawImage(src, sw * fx, sh * fy, cw, ch, 0, 0, w, h);
+  cx.setTransform(1, 0, 0, 1, 0, 0);
+  if (rot){ cx.translate(w / 2, h / 2); cx.rotate(rot * Math.PI / 180); cx.translate(-dw / 2, -dh / 2); }
+  cx.drawImage(src, sw * fx, sh * fy, cw, ch, 0, 0, dw, dh);
+  cx.setTransform(1, 0, 0, 1, 0, 0);
   const im = cx.getImageData(0, 0, w, h), d = im.data, hist = new Uint32Array(256);
   for (let i = 0; i < d.length; i += 4){ const g = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8; d[i] = g; hist[g]++; }
   const n = w * h; let lo = 0, hi = 255, acc = 0;
@@ -1479,9 +1517,9 @@ function ocrPrep(src, sw, sh, crop, maxPx){
   cx.putImageData(im, 0, 0);
   return ocrCv;
 }
-async function vinOcr(src, sw, sh, crop, maxPx){
+async function vinOcr(src, sw, sh, crop, maxPx, rot){
   const w = await loadOcr();
-  const { data } = await w.recognize(ocrPrep(src, sw, sh, crop, maxPx));
+  const { data } = await w.recognize(ocrPrep(src, sw, sh, crop, maxPx, rot || 0));
   return vinFromText(data && data.text);
 }
 async function readVinPhoto(file){
@@ -1575,9 +1613,29 @@ async function usedGotVin(form, vin, fromText, d){
   if (!form.stock.value.trim()) setTimeout(() => form.stock.focus(), 50);
 }
 /* --- Live camera scanner: aim at the door-jamb barcode, it reads on its own --- */
-const SC = { stream: null, timer: null, form: null, n: 0, torch: false, zoom: null, zoomed: false, id: 0, ocrW: null, ocrBusy: false, ocrSeen: new Map() };
+const SC = { stream: null, timer: null, form: null, n: 0, torch: false, zoom: null, zoomed: false, id: 0, ocrW: null, ocrBusy: false, ocrSeen: new Map(), zxBusy: false, rot: 0 };
+// How far the screen has turned from portrait: 0, 90 or 270.
+function scanAngle(){
+  let a = screen.orientation && typeof screen.orientation.angle === "number" ? screen.orientation.angle : (typeof window.orientation === "number" ? window.orientation : 0);
+  a = ((a % 360) + 360) % 360;
+  if (a === 0 && innerWidth > innerHeight) a = 90;
+  return a === 180 ? 0 : a;
+}
+// Keep the scan screen fixed to the phone like a camera app: when the phone turns sideways,
+// turn the box and buttons back so they stay where they were. The camera picture itself stays right side up.
+function scanFixRotation(){
+  const ui = document.querySelector("#scanRoot .scan-ui"); if (!ui) return;
+  SC.rot = scanAngle();
+  const side = SC.rot === 90 || SC.rot === 270;
+  ui.style.width = (side ? innerHeight : innerWidth) + "px";
+  ui.style.height = (side ? innerWidth : innerHeight) + "px";
+  ui.style.transform = "translate(-50%,-50%) rotate(" + (-SC.rot) + "deg)";
+}
+addEventListener("resize", () => { if (document.getElementById("scanRoot")) scanFixRotation(); });
+if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener("change", () => setTimeout(scanFixRotation, 50));
 function scanStop(){
-  clearTimeout(SC.timer); SC.timer = null; SC.id++; SC.ocrBusy = false; SC.ocrSeen.clear();
+  clearTimeout(SC.timer); SC.timer = null; SC.id++; SC.ocrBusy = false; SC.zxBusy = false; SC.ocrSeen.clear();
+  try{ screen.orientation && screen.orientation.unlock && screen.orientation.unlock(); }catch(e){}
   if (SC.stream){ SC.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); SC.stream = null; }
   const r = document.getElementById("scanRoot"); if (r) r.remove();
 }
@@ -1585,13 +1643,14 @@ function scanUI(status, live){
   let r = document.getElementById("scanRoot");
   if (!r){
     r = document.createElement("div"); r.id = "scanRoot"; r.className = "scan";
-    r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-box"><i></i></div>' +
+    r.innerHTML = '<video playsinline muted autoplay></video><div class="scan-ui"><div class="scan-box"><i></i></div>' +
       '<div class="scan-top"><b>Scan the VIN</b><span id="scanStatus"></span></div>' +
       '<div class="scan-bar"><button class="btn" type="button" data-scan="cancel">✎ Type it in</button>' +
       '<button class="btn hidden" type="button" data-scan="torch">🔦 Light</button>' +
       '<button class="btn hidden" type="button" data-scan="zoom">🔍 Zoom</button>' +
-      '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div>';
+      '<button class="btn" type="button" data-scan="photo">📷 Take photo</button></div></div>';
     document.body.appendChild(r);
+    scanFixRotation();
   }
   r.classList.toggle("live", !!live);
   $("#scanStatus").textContent = status;
@@ -1604,6 +1663,8 @@ async function scanOpen(form){
   const r = scanUI("Starting camera…", false);
   loadBarcodeLib().catch(() => {});
   loadOcr().then(w => { SC.ocrW = w; }).catch(e => console.warn("VIN text reader:", e));   // loads while the camera starts
+  zxWorker();
+  try{ screen.orientation && screen.orientation.lock && screen.orientation.lock("portrait").catch(() => {}); }catch(e){}   // Android; iPhones ignore it, the turn-back above covers them
   try{
     SC.stream = await md.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
   }catch(e){
@@ -1630,33 +1691,47 @@ function scanCrop(v){
     const box = document.querySelector("#scanRoot .scan-box").getBoundingClientRect(), vr = v.getBoundingClientRect();
     const vw = v.videoWidth, vh = v.videoHeight, sc = Math.max(vr.width / vw, vr.height / vh);
     const ox = (vr.width - vw * sc) / 2 + vr.left, oy = (vr.height - vh * sc) / 2 + vr.top;
-    const mx = box.width * 0.08, my = box.height * 0.15;
+    const side = SC.rot === 90 || SC.rot === 270;
+    const mx = box.width * (side ? 0.15 : 0.08), my = box.height * (side ? 0.08 : 0.15);
     let x = (box.left - mx - ox) / sc / vw, y = (box.top - my - oy) / sc / vh, w = (box.width + 2 * mx) / sc / vw, h = (box.height + 2 * my) / sc / vh;
     x = Math.max(0, x); y = Math.max(0, y); w = Math.min(1 - x, w); h = Math.min(1 - y, h);
     return w > 0.05 && h > 0.05 ? [x, y, w, h] : [0, 0, 1, 1];
   }catch(e){ return [0, 0, 1, 1]; }
 }
-// One attempt per frame. The ZXing reader cycles through a few tilts, since door-jamb labels are rarely level.
+// Door-jamb labels are rarely level, so the barcode reader cycles through a few tilts.
 const SCAN_TILTS = [0, -6, 6, 90, -12, 12, 0, 84, 96];
+function scanFrame(v){   // what to try this frame: the box on screen, every other frame the whole band it sits in
+  const k = SC.n++ % SCAN_TILTS.length, c = scanCrop(v), side = SC.rot === 90 || SC.rot === 270;
+  const crop = SC.n % 2 ? c : side ? [c[0], 0, c[2], 1] : [0, c[1], 1, c[3]];
+  return { crop, deg: SCAN_TILTS[k] + SC.rot, glob: k === 6 };
+}
 async function scanLoop(v){
   if (!SC.stream) return;
   let vin = null;
+  const ready = v.readyState >= 2 && v.videoWidth;
   try{
-    if (v.readyState >= 2 && v.videoWidth){
-      vin = await vinNative(v);
-      if (!vin && window.ZXing){
-        const k = SC.n++ % SCAN_TILTS.length, deg = SCAN_TILTS[k];
-        const c = scanCrop(v);   // what's inside the box on screen (plus a margin)...
-        const crop = SC.n % 2 ? c : [0, c[1], 1, c[3]];   // ...and every other frame the full width of that band
-        vin = vinTry(window.ZXing, v, v.videoWidth, v.videoHeight, crop, 1920, deg, k === 6);
+    if (ready){
+      vin = await vinNative(v);   // most Android phones have a fast built-in reader
+      if (!vin && !SC.zxBusy){
+        if (zxWorker()) scanZx(v);   // runs in the background; doesn't hold up the next frame
+        else if (window.ZXing){ const f = scanFrame(v); vin = vinTry(window.ZXing, v, v.videoWidth, v.videoHeight, f.crop, 1600, f.deg, f.glob); }
       }
     }
   }catch(e){}
   if (!SC.stream) return;
   if (vin){ scanDone(vin); return; }
-  if (SC.ocrW && !SC.ocrBusy && v.readyState >= 2 && v.videoWidth) scanOcr(v);
-  if (SC.n === 60) scanUI("Still looking… move closer or farther" + (SC.zoom ? ", try Zoom" : "") + ", turn on the light, or tap Type it in.", true);
-  SC.timer = setTimeout(() => scanLoop(v), 60);
+  if (SC.ocrW && !SC.ocrBusy && ready) scanOcr(v);
+  if (SC.n === 90) scanUI("Still looking… move closer or farther" + (SC.zoom ? ", try Zoom" : "") + ", turn on the light, or tap Type it in.", true);
+  SC.timer = setTimeout(() => scanLoop(v), 30);
+}
+async function scanZx(v){
+  const id = SC.id; SC.zxBusy = true;
+  try{
+    const f = scanFrame(v);
+    const vin = await vinTryWorker(v, v.videoWidth, v.videoHeight, f.crop, 1280, f.deg, f.glob);
+    if (vin && id === SC.id && SC.stream) scanDone(vin);
+  }catch(e){}
+  finally{ if (id === SC.id) SC.zxBusy = false; }
 }
 function scanDone(vin, fromText, d){
   try{ navigator.vibrate && navigator.vibrate(120); }catch(e){}
@@ -1669,15 +1744,16 @@ function scanDone(vin, fromText, d){
 async function scanOcr(v){
   const id = SC.id; SC.ocrBusy = true;
   try{
-    const r = await vinOcr(v, v.videoWidth, v.videoHeight, scanCrop(v), 1600);
+    const r = await vinOcr(v, v.videoWidth, v.videoHeight, scanCrop(v), 1100, SC.rot);
     if (id !== SC.id || !SC.stream || !r) return;
     const n = (SC.ocrSeen.get(r.vin) || 0) + 1; SC.ocrSeen.set(r.vin, n);
-    if (n < 2) return;
-    if (r.sure) return scanDone(r.vin, true);
-    const d = await lookupVin(r.vin);
+    if (n < 1) return;   // already ruled out
+    if (n >= 2 && r.sure) return scanDone(r.vin, true);
+    if (n < 2 && !r.sure) return;   // a read that needed fixing has to repeat first
+    const d = await lookupVin(r.vin);   // clean first read, or a fixed one seen twice: NHTSA must know it
     if (id !== SC.id || !SC.stream) return;
     if (d && d.ok) return scanDone(r.vin, true, d);
-    SC.ocrSeen.set(r.vin, -99);   // not a real VIN: stop counting it
+    if (d) SC.ocrSeen.set(r.vin, -99);   // NHTSA doesn't know it: stop counting it (no answer at all = keep trying)
   }catch(e){ console.warn("VIN text reader:", e); }
   finally{ if (id === SC.id) SC.ocrBusy = false; }
 }
