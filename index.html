@@ -459,6 +459,9 @@ main[data-view="view"]{ max-width:1800px; }
 .scan-bar .btn[aria-pressed="true"]{ background:#fff; color:#000; }
 .u-scanbig{ width:100%; min-height:56px; font-size:18px; }
 .u-ok-msg{ background:var(--ok); color:#fff; border-radius:10px; padding:10px 14px; font-weight:600; margin-top:10px; }
+.dp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;margin-bottom:10px}
+.dp-th{aspect-ratio:1;border:1px solid var(--line,#ddd);border-radius:10px;overflow:hidden;padding:0;background:var(--panel,#f4f4f4);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px}
+.dp-th img{width:100%;height:100%;object-fit:cover;display:block}
 </style>
 </head>
 <body>
@@ -1335,7 +1338,7 @@ function usedModal(){
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
     ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
       (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div></div>' : "") +
-    stageSec +
+    stageSec + dpSlot("used", dpItem("used", u.id)) +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec);
   setTimeout(() => root.querySelector(".x")?.focus(), 30);
@@ -2723,7 +2726,7 @@ function viewStores(){
     '<div class="totals"><div class="total"><b>' + tot.sold + '</b><span>Sold today</span></div><div class="total"><b>' + tot.act.length + '</b><span>On boards now</span></div>' +
     '<div class="total' + (tot.over.length ? " bad" : "") + '"><b>' + tot.over.length + '</b><span>Overdue</span></div><div class="total"><b>' + tot.ready + '</b><span>Ready for delivery</span></div>' +
     '<div class="total"><b>' + (tot.avg ? esc(fmtDur(tot.avg)) : "—") + '</b><span>Avg turn today</span></div>' + totalScoreTile() + '</div>' +
-    '<div class="store-grid">' + tiles + '</div>';
+    '<div class="store-grid">' + tiles + '</div>' + dpRecentPanel();
 }
 
 /* ============================================================
@@ -2810,6 +2813,227 @@ document.addEventListener("click", async e => {
   AL.busy = false; render(true);
 });
 
+/* ============================================================
+   DAMAGE PHOTOS (add-on)
+   Detailers snap photos of damage on a delivery or used car. Phones can add
+   photos but never see them; only the area manager (PIN) can view them.
+   Switch per store: Setup > Damage photos (feature_flags 'photos:<storeId>').
+   OFF, not set up, or any error = nothing shows; board works exactly as before.
+   Own table only (sql/damage-photos.sql). Never writes to jobs, used cars or config.
+   ============================================================ */
+const DP = { flags: {}, flagOk: false, counts: {}, list: [], img: {}, busy: false, saving: false, view: null, running: false, sig: "", setupOk: true };
+function dpSafe(fn, d){ try{ return fn(); }catch(e){ console.warn("Damage photos:", e); return d === undefined ? "" : d; } }
+function dpOn(store){ return DP.flagOk && (store === "*" ? stores().some(s => DP.flags[s.id] === true) : DP.flags[store] === true); }
+function dpCanAdd(){ return S.canWrite && (S.role === "shop" || S.role === "area"); }
+async function dpLoadFlags(){
+  try{
+    if (!db){ DP.flagOk = true; return; }
+    const { data, error } = await db.from("feature_flags").select("key,enabled").like("key", "photos:%");
+    if (error) throw error;
+    const f = {}; (data || []).forEach(r => { f[r.key.slice(7)] = !!r.enabled; });
+    DP.flags = f; DP.flagOk = true;
+  }catch(e){ DP.flags = {}; DP.flagOk = false; }
+}
+async function dpLoad(){
+  if (!db) return;
+  try{
+    if (S.role === "area"){
+      if (!S.secure || !S.amTok || !dpOn("*")) return;
+      const { data, error } = await secureRpc("ts_damage_list", { tok: S.amTok, since: new Date(Date.now() - 95 * DAY).toISOString() });
+      if (error){ DP.setupOk = !/ts_damage_list|schema cache/i.test(error.message || ""); return; }
+      DP.setupOk = true;
+      DP.list = (data || []).map(r => Object.assign({}, r, { t: new Date(r.created_at).getTime() }));
+      const c = {}; DP.list.forEach(r => { c[r.item_id] = (c[r.item_id] || 0) + 1; }); DP.counts = c;
+    } else if (S.store && S.store !== "*" && dpOn(S.store)){
+      const { data, error } = await db.rpc("ts_damage_counts", { st: S.store });
+      if (error){ DP.setupOk = !/ts_damage_counts|schema cache/i.test(error.message || ""); return; }
+      DP.setupOk = true; DP.counts = data || {};
+    }
+  }catch(e){ console.warn("Damage photos didn't load (board unaffected):", e); }
+}
+// Redraw only an open delivery sheet / used-car pop-up / photo viewer, never the board itself.
+function dpRedraw(force){
+  const sig = JSON.stringify(DP.flags) + "|" + DP.flagOk + "|" + JSON.stringify(DP.counts) + "|" + DP.list.length + "|" + DP.busy;
+  if (!force && sig === DP.sig) return; DP.sig = sig;
+  // Swap just the photo section in place, so nothing else on an open sheet (typed notes, edits) is touched.
+  dpSafe(() => {
+    const swap = (kind, id) => { const el = document.getElementById("dpSec-" + id), it = dpItem(kind, id); if (el && it) el.outerHTML = dpSlot(kind, it); };
+    if (S.sheet) swap("job", S.sheet.id);
+    if (U.modal && U.modal.kind === "view") swap("used", U.modal.id);
+    if (S.view === "stores" && S.role === "area"){ const el = document.getElementById("dpRecent"); if (el) el.outerHTML = dpRecentPanel(); }
+  });
+}
+async function dpTick(){
+  if (DP.running) return; DP.running = true;
+  try{
+    const was = JSON.stringify(DP.flags);
+    await dpLoadFlags();
+    if (dpOn("*")) await dpLoad();
+    dpRedraw(JSON.stringify(DP.flags) !== was);
+  }catch(e){}
+  DP.running = false;
+}
+(function(){
+  let started = false;
+  setInterval(() => { if (!S.loaded || started) return; started = true; dpTick(); setInterval(dpTick, 30000); }, 1000);
+})();
+
+// Shrink a phone photo to a small JPEG before upload (keeps it fast on shop Wi-Fi).
+function dpShrink(file){
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      try{
+        const max = 1280, sc = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+        const c = document.createElement("canvas"); c.width = Math.round(im.naturalWidth * sc); c.height = Math.round(im.naturalHeight * sc);
+        c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+        let q = 0.72, out = c.toDataURL("image/jpeg", q);
+        while (out.length > 850000 && q > 0.3){ q -= 0.12; out = c.toDataURL("image/jpeg", q); }
+        URL.revokeObjectURL(url); res(out);
+      }catch(e){ URL.revokeObjectURL(url); rej(e); }
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("not an image")); };
+    im.src = url;
+  });
+}
+function dpItem(kind, id){
+  if (kind === "used"){ const u = U.list.find(x => x.id === id); return u ? { id, kind, store: u.store, label: (usedId(u) + " " + usedVeh(u)).trim() } : null; }
+  const j = S.jobs.find(x => x.id === id); return j ? { id, kind: "job", store: j.store, label: ("#" + (j.stock || "") + " " + vehicle(j)).trim() } : null;
+}
+async function dpUpload(it, files, note){
+  if (!files.length || DP.busy) return;
+  DP.busy = true; dpRedraw(true);
+  let ok = 0, bad = 0;
+  for (const f of files){
+    try{
+      const img = await dpShrink(f);
+      if (db){ const { error } = await db.from("damage_photos").insert({ item_id: it.id, kind: it.kind, store: it.store, label: it.label.slice(0, 120), note: String(note || "").slice(0, 300), taken_by: String(S.me || (S.role === "area" ? "Area manager" : "Detail shop")).slice(0, 60), img }); if (error) throw error; }
+      ok++;
+    }catch(e){ console.warn("Damage photo upload:", e); bad++; }
+  }
+  DP.counts[it.id] = (DP.counts[it.id] || 0) + ok;
+  DP.busy = false;
+  if (ok) toast(ok + " damage photo" + (ok === 1 ? "" : "s") + " saved" + (bad ? ", " + bad + " didn’t upload" : ""), !!bad);
+  else toast("Photo didn’t upload. Check the connection and try again.", true);
+  if (S.role === "area") await dpLoad();
+  dpRedraw(true);
+}
+// Section inside the delivery sheet and the used-car pop-up.
+function dpSection(kind, it){
+  return dpSafe(() => {
+    if (!it || !dpOn(it.store) || !DP.setupOk) return "";
+    const isArea = S.role === "area", add = dpCanAdd();
+    if (!isArea && !add) return "";
+    const n = DP.counts[it.id] || 0;
+    let h = '<div class="sec" id="dpSec-' + esc(it.id) + '"><h3>Damage photos</h3>';
+    if (isArea){
+      const mine = DP.list.filter(r => r.item_id === it.id);
+      h += mine.length ? '<div class="dp-grid">' + mine.map(r => '<button class="dp-th" data-action="dp-open" data-item="' + esc(it.id) + '" data-pid="' + esc(r.id) + '" aria-label="Open photo">' + (DP.img[r.id] ? '<img alt="" src="' + DP.img[r.id] + '">' : '<span class="muted">' + (DP.img["!" + r.id] ? "Couldn’t load" : "Loading…") + '</span>') + '</button>').join("") + '</div>' : '<p class="muted" style="margin:0 0 10px">No damage photos.</p>';
+      if (mine.some(r => !DP.img[r.id] && !DP.img["!" + r.id])) setTimeout(() => dpFetchImgs(mine.map(r => r.id)), 0);
+    } else {
+      h += '<p class="muted" style="margin:0 0 10px">' + (n ? '<b style="color:var(--ink,inherit)">' + n + ' photo' + (n === 1 ? "" : "s") + ' saved.</b> ' : "") + 'Saw damage before you started? Snap it here. Only the area manager can see these.</p>';
+    }
+    if (add) h += '<input class="input" id="dpNote" maxlength="300" placeholder="What and where (optional)" style="margin-bottom:10px">' +
+      '<button class="btn' + (isArea ? "" : " primary") + '" data-action="dp-add" data-kind="' + kind + '" data-id="' + esc(it.id) + '"' + (DP.busy ? " disabled" : "") + '>' + (DP.busy ? "Uploading…" : "📷 Add damage photo") + '</button>';
+    return h + '</div>';
+  });
+}
+function dpSlot(kind, it){ return dpSection(kind, it) || (it ? '<span id="dpSec-' + esc(it.id) + '"></span>' : ""); }
+async function dpFetchImgs(ids){
+  const need = ids.filter(id => !DP.img[id] && !DP.img["~" + id] && !DP.img["!" + id]);
+  if (!need.length || !db || !S.amTok) return;
+  need.forEach(id => { DP.img["~" + id] = 1; });
+  await Promise.all(need.map(async id => {
+    try{ const { data, error } = await secureRpc("ts_damage_img", { tok: S.amTok, pid: id }); if (!error && data) DP.img[id] = data; else DP.img["!" + id] = 1; }catch(e){ DP.img["!" + id] = 1; }
+    delete DP.img["~" + id];
+  }));
+  dpRedraw(true); if (DP.view) dpViewer();
+}
+// Area manager: All stores page list.
+function dpRecentPanel(){
+  return dpSafe(() => {
+    if (S.role !== "area" || !dpOn("*")) return '<div id="dpRecent"></div>';
+    const cut = Date.now() - 30 * DAY, by = new Map();
+    DP.list.filter(r => r.t >= cut).forEach(r => { const g = by.get(r.item_id) || { r, n: 0 }; g.n++; by.set(r.item_id, g); });
+    const rows = [...by.values()].slice(0, 25);
+    return '<div id="dpRecent" class="panel" style="margin-top:18px"><h3 style="font-size:20px">Damage photos, last 30 days</h3>' +
+      (!DP.setupOk ? '<div class="warn-box">Not set up yet. Run <b>sql/damage-photos.sql</b> in Supabase.</div>' :
+       rows.length ? '<div class="set-list">' + rows.map(g => '<button class="set-item" style="width:100%;text-align:left;cursor:pointer;background:none;border:0;border-bottom:1px solid var(--line,#e5e5e5)" data-action="dp-open" data-item="' + esc(g.r.item_id) + '"><span style="flex:1"><b>' + esc(g.r.label || "Vehicle") + '</b><br><span class="muted">' + esc(storeName(g.r.store)) + ' · ' + esc(fmtTime(g.r.t)) + (g.r.taken_by ? ' · ' + esc(g.r.taken_by) : "") + '</span></span><span class="pill">📷 ' + g.n + '</span></button>').join("") + '</div>'
+       : '<p class="muted" style="margin:0">None yet.</p>') + '</div>';
+  }, '<div id="dpRecent"></div>');
+}
+// Full-size viewer (its own layer).
+function dpRoot(){ let r = document.getElementById("dpRoot"); if (!r){ r = document.createElement("div"); r.id = "dpRoot"; document.body.appendChild(r); } return r; }
+function dpViewer(){
+  dpSafe(() => {
+    const root = dpRoot();
+    if (!DP.view){ root.innerHTML = ""; return; }
+    const list = DP.list.filter(r => r.item_id === DP.view.item);
+    if (!list.length){ DP.view = null; root.innerHTML = ""; return; }
+    let i = list.findIndex(r => r.id === DP.view.pid); if (i < 0) i = 0; DP.view.pid = list[i].id;
+    const r = list[i]; if (!DP.img[r.id]) setTimeout(() => dpFetchImgs(list.map(x => x.id)), 0);
+    root.innerHTML = '<div class="backdrop" data-action="dp-close-bg" style="z-index:80"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="dpTitle">' +
+      '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">' + esc(storeName(r.store)) + ' · ' + (r.kind === "used" ? "Used car" : "Delivery") + '</div><h2 id="dpTitle">' + esc(r.label || "Vehicle") + '</h2></div><button class="x" data-action="dp-close" aria-label="Close">×</button></div>' +
+      '<div class="sec" style="border-top:0">' + (DP.img[r.id] ? '<img alt="Damage photo" src="' + DP.img[r.id] + '" style="width:100%;border-radius:10px;display:block">' : '<p class="muted">Loading photo…</p>') +
+      '<p style="margin:10px 0 0">' + (r.note ? '<b>' + esc(r.note) + '</b><br>' : "") + '<span class="muted">' + esc(fmtTime(r.t)) + (r.taken_by ? ' · ' + esc(r.taken_by) : "") + ' · ' + (i + 1) + ' of ' + list.length + '</span></p>' +
+      '<div class="row" style="margin-top:12px">' + (list.length > 1 ? '<button class="btn" data-action="dp-step" data-d="-1">‹ Prev</button><button class="btn" data-action="dp-step" data-d="1">Next ›</button>' : "") +
+      '<span class="spacer"></span><button class="btn danger" data-action="dp-del">' + (DP.view.confirmDel ? "Tap again to delete" : "Delete photo") + '</button></div></div></div></div>';
+  });
+}
+// Area manager switch panel (Setup).
+function dpSwitchPanel(){
+  return dpSafe(() => {
+    if (S.role !== "area") return "";
+    let h = '<div class="panel"><h3 style="font-size:22px">Damage photos</h3><p class="muted">Lets detailers snap photos of damage on a delivery or used car. Only area managers can see the photos (on the All stores page and in each car). Photos are deleted after 90 days. Off means that store’s board works exactly like today.</p>';
+    if (!DP.flagOk) return h + '<div class="warn-box">The switches aren’t reachable right now. Damage photos stay off until they are.</div></div>';
+    if (!DP.setupOk) h += '<div class="warn-box" style="margin-bottom:10px">Run <b>sql/damage-photos.sql</b> in Supabase before turning this on.</div>';
+    const dis = DP.saving ? " disabled" : "";
+    return h + '<div class="set-list">' + stores().map(s => {
+      const on = DP.flags[s.id] === true;
+      return '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(s.name) + '</span>' +
+        '<span style="width:44px;font-weight:700;color:' + (on ? "var(--ok)" : "var(--muted)") + '">' + (on ? "ON" : "OFF") + '</span>' +
+        '<button class="btn' + (on ? "" : " primary") + '" style="width:110px" data-action="dp-flag" data-id="' + esc(s.id) + '"' + dis + '>' + (on ? "Turn off" : "Turn on") + '</button></div>';
+    }).join("") + '</div></div>';
+  });
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest('[data-action^="dp-"]'); if (!t) return;
+  const a = t.dataset.action;
+  if (a === "dp-close-bg" && e.target !== t) return;
+  try{
+    if (a === "dp-add"){
+      if (!dpCanAdd() || DP.busy) return;
+      const it = dpItem(t.dataset.kind, t.dataset.id); if (!it) return;
+      const note = (document.getElementById("dpNote") || {}).value || "";
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.multiple = true; inp.style.display = "none";
+      inp.onchange = () => { const fs = [...(inp.files || [])].slice(0, 10); inp.remove(); dpUpload(it, fs, note); };
+      document.body.appendChild(inp); inp.click(); return;
+    }
+    if (a === "dp-open"){ if (S.role !== "area") return; DP.view = { item: t.dataset.item, pid: t.dataset.pid || null }; dpViewer(); return; }
+    if (a === "dp-close" || a === "dp-close-bg"){ DP.view = null; dpViewer(); return; }
+    if (a === "dp-step"){
+      const list = DP.list.filter(r => r.item_id === DP.view.item), i = list.findIndex(r => r.id === DP.view.pid);
+      DP.view = { item: DP.view.item, pid: list[(i + Number(t.dataset.d) + list.length) % list.length].id }; dpViewer(); return;
+    }
+    if (a === "dp-del"){
+      if (!DP.view.confirmDel){ DP.view.confirmDel = true; dpViewer(); return; }
+      const pid = DP.view.pid; t.disabled = true;
+      const { error } = await secureRpc("ts_damage_del", { tok: S.amTok, pid }); if (error) throw error;
+      DP.list = DP.list.filter(r => r.id !== pid); delete DP.img[pid];
+      const c = {}; DP.list.forEach(r => { c[r.item_id] = (c[r.item_id] || 0) + 1; }); DP.counts = c;
+      DP.view.confirmDel = false; DP.view.pid = null; toast("Photo deleted"); dpViewer(); dpRedraw(true); return;
+    }
+    if (a === "dp-flag"){
+      if (S.role !== "area" || DP.saving) return;
+      const id = t.dataset.id, next = DP.flags[id] !== true;
+      DP.saving = true; t.disabled = true;
+      try{ await flagsSave([{ key: "photos:" + id, enabled: next }]); DP.flags[id] = next; toast("Damage photos " + (next ? "on" : "off") + " at " + storeName(id)); if (next) await dpLoad(); }
+      catch(err){ toast("Couldn't change the switch. Nothing was changed. Try again.", true); }
+      DP.saving = false; render(true); return;
+    }
+  }catch(err){ console.warn("Damage photos:", err); toast("That didn’t work. Try again.", true); if (DP.view){ DP.view.confirmDel = false; dpViewer(); } }
+});
+
 /* --- Setup --- */
 function viewSettings(){
   const st = stores();
@@ -2825,7 +3049,7 @@ function viewSettings(){
       products().map(p => '<span class="pill" style="font-size:15px;padding:6px 6px 6px 12px">' + esc(p) + ' <button class="x" style="width:28px;height:28px;font-size:16px" data-action="del-prod" data-p="' + esc(p) + '" aria-label="Remove ' + esc(p) + '">×</button></span>').join("") +
       '</div><form class="set-item" data-form="add-prod"><input class="input" name="label" placeholder="Add a product" required><button class="btn primary" type="submit">Add</button></form></div>' +
     '<div class="panel"><h3 style="font-size:22px">Setting up a shop TV</h3><p class="muted" style="margin-bottom:0">On the TV’s browser or a cheap stick PC, open this board, choose <b>Detail shop</b>, enter that store’s code, then tap <b>TV mode</b> and <b>Turn on chime</b>. It remembers everything after that.</p></div>' +
-    reviewsSwitchPanel() + usedSwitchPanel() + alertsPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
+    reviewsSwitchPanel() + usedSwitchPanel() + dpSwitchPanel() + alertsPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
 }
 
 /* --- Job sheet --- */
@@ -2871,7 +3095,7 @@ function renderSheet(){
       (j.status !== "delivered" ? '<div><dt>On board</dt><dd>' + esc(fmtDur(now - j.createdAt)) + '</dd></div>' : "") +
       (j.readyAt ? '<div><dt>Turn time</dt><dd>' + esc(fmtDur(j.readyAt - j.createdAt)) + '</dd></div>' : "") + '</dl>' +
       (j.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(j.notes) + '</p>' : "") + '</div>' +
-    statusSec + reviewSection(j) + prodSec + editSec +
+    statusSec + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (j.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec + '</div></div>';
   const sh = root.querySelector(".sheet"); sh.scrollTop = keepScroll;
