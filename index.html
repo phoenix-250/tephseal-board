@@ -248,6 +248,13 @@ body.tv{ background:var(--shop-bg); }
 .u-dim{ color:var(--shop-muted); font-weight:500; }
 .u-time{ font-family:var(--cond); font-weight:600; color:var(--shop-muted); flex:none; }
 .u-item.u-bad{ border-left-color:var(--shop-bad); box-shadow:inset 0 0 0 2px var(--shop-bad); }
+.u-item.u-nokeys{ background:#E00000 !important; color:#fff !important; border-left-color:#7a0000; box-shadow:0 0 0 3px #ff4d4d; animation:nkPulse 2s ease-in-out infinite; }
+.u-item.u-nokeys .u-time, .u-item.u-nokeys .u-who, .u-item.u-nokeys .u-stock{ color:#fff !important; font-weight:800; }
+@keyframes nkPulse{ 50%{ box-shadow:0 0 0 6px rgba(255,77,77,.45); } }
+.job-row.u-nokeys{ background:#E00000; color:#fff; } .job-row.u-nokeys .bar{ background:#7a0000; } .job-row.u-nokeys *{ color:#fff !important; }
+.tm-t tr.u-nokeys td{ background:#E00000; color:#fff !important; } .tm-t tr.u-nokeys td *{ color:#fff !important; }
+.nk-box{ background:#E00000; color:#fff; border-radius:12px; padding:14px; font-weight:700; }
+.nk-box .muted{ color:#ffe0e0; }
 .u-t-ok{ color:var(--shop-ok); } .u-t-warn{ color:var(--shop-warn); } .u-t-bad{ color:var(--shop-bad); font-weight:700; }
 .u-c-ok{ color:var(--ok); } .u-c-warn{ color:var(--warn); } .u-c-bad{ color:var(--bad); }
 .u-more,.u-none{ color:var(--shop-muted); font-size:clamp(14px,1vw,18px); padding:2px 4px; }
@@ -1012,10 +1019,22 @@ const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
 const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN " + u.vin.slice(-8) : "");
 // Timer runs from when the car is added until Detail & photos done. Green under 24h, yellow 24–48h, red past 48h.
-// Clock stops at Completed; if moved back, it resumes where it stopped (pausedMs = time it sat completed).
-const usedTotal = u => Math.max(0, (u.doneAt || 0) - (u.createdAt || 0) - (u.pausedMs || 0));
+// Clock stops at Completed or while marked No keys; when it starts again it resumes where it stopped
+// (pausedMs = total time it sat stopped, clockStop = when the current stop began).
+const USED_KEY_WHY = { service:"Service", sales:"Sales", other:"Other" };
+const usedStopped = u => u.stage === "done" || !!u.noKeys;
+const usedStopAt = u => u.clockStop || (u.noKeys && u.noKeys.at) || u.doneAt || null;
+// Work out the clock fields for a change (stage and/or keys) so stop/resume always lines up.
+function usedClockPatch(u, next, now){
+  const was = usedStopped(u), will = usedStopped(Object.assign({}, u, next)), p = {};
+  if (was && !will){ p.pausedMs = (u.pausedMs || 0) + Math.max(0, now - (usedStopAt(u) || now)); p.clockStop = null; }
+  else if (!was && will) p.clockStop = now;
+  else if (was && will && !u.clockStop) p.clockStop = usedStopAt(u) || now;
+  return p;
+}
+const usedTotal = u => Math.max(0, (usedStopAt(u) || u.doneAt || 0) - (u.createdAt || 0) - (u.pausedMs || 0));
 function usedClock(u, now){
-  const end = u.stage === "done" ? (u.doneAt || now) : now, age = Math.max(0, end - (u.createdAt || end) - (u.pausedMs || 0));
+  const end = usedStopped(u) ? (usedStopAt(u) || now) : now, age = Math.max(0, end - (u.createdAt || end) - (u.pausedMs || 0));
   const lvl = age < USED_GOAL ? "ok" : age < USED_MAX ? "warn" : "bad";
   let txt;
   if (u.stage === "done") txt = "Completed in " + fmtDur(age);
@@ -1024,8 +1043,10 @@ function usedClock(u, now){
   else txt = fmtDur(age - USED_MAX) + " past 48h";
   // short version for the TV strip: whole hours once it's 2h+, so names get the room
   const sd = ms => ms >= 2 * HOUR ? Math.round(ms / HOUR) + "h" : fmtDur(ms);
-  const short = u.stage === "done" ? "Completed in " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
-  return { lvl, txt, age, short };
+  let short = u.stage === "done" ? "Completed in " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
+  const nk = !!u.noKeys;
+  if (nk){ const why = "NO KEYS · " + (USED_KEY_WHY[u.noKeys.why] || "Other"); txt = why + " (" + (u.noKeys.name || "") + ") · clock paused at " + fmtDur(age); short = why; }
+  return { lvl, txt, age, short, nk };
 }
 const usedDetailers = store => (U.detailers[store] || []).slice().sort((a, b) => a.localeCompare(b));
 function usedLog(u, a){ return (u.log || []).concat([{ t: Date.now(), by: S.me || ROLES[S.role].label, a }]).slice(-30); }
@@ -1213,7 +1234,7 @@ function usedStrip(store){
       ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["done", "Completed", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
     ];
-    const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
+    const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + (c.nk ? " u-nokeys" : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
       '<span class="u-stock">' + esc(usedId(u)) + '</span>' +
       '<span class="u-veh">' + esc(usedVeh(u)) + '</span>' +
       (u.detailer ? '<span class="u-who">' + esc(u.detailer) + '</span>' : "") +
@@ -1240,7 +1261,7 @@ function viewUsed(inline){
       const nx = USED_NEXT[u.stage];
       const act = (nx && p.move && S.canWrite) ? '<button class="btn primary" data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + nx.to + '">' + nx.label + '</button>' : "";
       const c = usedClock(u, now);
-      return '<div class="job-row u-' + (c.lvl === "bad" ? "bad" : c.lvl) + '"><div class="bar"></div>' +
+      return '<div class="job-row u-' + (c.lvl === "bad" ? "bad" : c.lvl) + (c.nk ? " u-nokeys" : "") + '"><div class="bar"></div>' +
         '<button class="job-main" data-action="u-open" data-id="' + esc(u.id) + '"><div class="job-title">' + esc(usedVeh(u)) + (u.color ? ' <span class="muted" style="font-weight:500">' + esc(u.color) + '</span>' : "") + '</div>' +
         '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN ' + esc(u.vin.slice(-8)) + '</span>' : "") +
         (S.store === "*" ? '<span>' + esc(storeName(u.store)) + '</span>' : "") +
@@ -1331,6 +1352,16 @@ function usedModal(){
   }
   const u = U.list.find(x => x.id === U.modal.id);
   if (!u){ usedClose(); return; }
+  if (U.modal.kind === "keys"){
+    const nk = u.noKeys || {};
+    root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
+      '<div class="sec"><div class="nk-box">NO KEYS · ' + esc(USED_KEY_WHY[nk.why] || "Other") + ' · ' + esc(nk.name || "") + '<div class="muted" style="font-weight:500">Since ' + esc(fmtTime(nk.at)) + ' · clock paused</div></div>' +
+      '<h2 style="margin:16px 0 12px">Did you get the keys back?</h2>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn primary" style="font-size:20px;padding:16px" data-action="u-keys-back" data-id="' + esc(u.id) + '">Yes</button>' +
+      '<button class="btn" style="font-size:20px;padding:16px" data-action="u-keys-no" data-id="' + esc(u.id) + '">No</button></div></div>');
+    setTimeout(() => root.querySelector('[data-action="u-keys-back"]')?.focus(), 30);
+    return;
+  }
   const clk = usedClock(u, Date.now());
   const p = usedPerm(S.role), now = Date.now(), w = S.canWrite;
   const stageSec = (p.move && w) ? '<div class="sec"><h3>Stage</h3><div class="seg" style="grid-template-columns:repeat(3,1fr)">' + Object.keys(USED_STAGES).map(k => '<button data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + k + '" aria-pressed="' + (u.stage === k) + '">' + USED_STAGES[k] + '</button>').join("") + '</div></div>' : "";
@@ -1347,10 +1378,29 @@ function usedModal(){
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
     ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
       (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div></div>' : "") +
-    stageSec + dpSlot("used", dpItem("used", u.id)) +
+    usedKeysSec(u, p, w) + stageSec + dpSlot("used", dpItem("used", u.id)) +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec);
   setTimeout(() => root.querySelector(".x")?.focus(), 30);
+}
+// Keys section in the car pop-up: one dropdown to mark No keys (reason + name required), one button for keys back.
+function usedKeysSec(u, p, w){
+  if (!(p.move && w)) return u.noKeys ? '<div class="sec"><div class="nk-box">NO KEYS · ' + esc(USED_KEY_WHY[u.noKeys.why] || "Other") + ' · ' + esc(u.noKeys.name || "") + '</div></div>' : "";
+  if (u.noKeys) return '<div class="sec"><h3>Keys</h3><div class="nk-box" style="margin-bottom:10px">NO KEYS · ' + esc(USED_KEY_WHY[u.noKeys.why] || "Other") + ' · ' + esc(u.noKeys.name || "") +
+    '<div class="muted" style="font-weight:500">Since ' + esc(fmtTime(u.noKeys.at)) + ' · clock paused</div></div><button class="btn primary" style="width:100%" data-action="u-keys-back" data-id="' + esc(u.id) + '">🔑 We have the keys back</button></div>';
+  return '<div class="sec"><h3>Keys</h3><form class="form" data-form="u-nokeys" data-id="' + esc(u.id) + '" novalidate autocomplete="off" style="gap:8px">' +
+    '<select class="input" name="why" data-action="u-keys-why"><option value="">🔑 Have keys</option><option value="service">No keys · Service</option><option value="sales">No keys · Sales</option><option value="other">No keys · Other</option></select>' +
+    '<div class="nk-more hidden"><input class="input" name="who" maxlength="40" placeholder="Name (required) — who has the keys" style="margin-bottom:8px"><div class="nk-err"></div>' +
+    '<button class="btn danger" type="submit" style="width:100%">Mark NO KEYS (pauses clock)</button></div></form></div>';
+}
+async function usedSetKeys(u, noKeys){
+  if (!u || U.busy || !usedPerm(S.role).move || !S.canWrite) return false;
+  const now = Date.now(), nk = noKeys ? Object.assign({ at: now, by: S.me || ROLES[S.role].label }, noKeys) : null;
+  const patch = Object.assign({ noKeys: nk, log: usedLog(u, nk ? "NO KEYS (" + USED_KEY_WHY[nk.why] + ", " + nk.name + ") — clock paused" : "Keys back — clock resumed") }, usedClockPatch(u, { noKeys: nk }, now));
+  U.busy = true;
+  try{ await usedApi.update(u, patch); toast(usedVeh(u) + (nk ? ": no keys, clock paused" : ": keys back, clock running")); return true; }
+  catch(e){ console.warn("Used cars:", e); toast("That didn't save. Check your connection and try again.", true); return false; }
+  finally{ U.busy = false; }
 }
 const USED_COLORS = ["White","Black","Silver","Gray","Red","Blue"];
 // Shared fields for Add and Edit. detStore: store id to show a detailer picker for, or null for none.
@@ -1879,7 +1929,7 @@ async function usedSetStage(u, to){
   if (!u || u.stage === to || !USED_STAGES[to] || !usedPerm(S.role).move || U.busy) return;
   const now = Date.now(), patch = { stage: to, stageAt: now, log: usedLog(u, "Moved to " + USED_STAGES[to]) };
   if (to === "progress" && !u.startedAt) patch.startedAt = now;
-  if (u.stage === "done" && to !== "done" && u.doneAt) patch.pausedMs = (u.pausedMs || 0) + Math.max(0, now - u.doneAt);
+  Object.assign(patch, usedClockPatch(u, { stage: to }, now));
   patch.doneAt = to === "done" ? now : null;
   U.busy = true;
   try{ await usedApi.update(u, patch); toast(usedVeh(u) + ": " + USED_STAGES[to].toLowerCase()); }
@@ -1893,7 +1943,9 @@ document.addEventListener("click", async e => {
     if (a === "u-bg"){ if (e.target === t) usedClose(); return; }
     if (a === "u-close"){ usedClose(); return; }
     if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
-    if (a === "u-open"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
+    if (a === "u-open"){ const u = find(); U.modal = { kind: (u && u.noKeys && usedPerm(S.role).move && S.canWrite) ? "keys" : "view", id: t.dataset.id }; usedModal(); return; }
+    if (a === "u-keys-no"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
+    if (a === "u-keys-back"){ const u = find(); if (await usedSetKeys(u, null)){ U.modal = U.modal && U.modal.kind === "keys" ? null : U.modal; if (U.modal) usedModal(); else usedRoot().innerHTML = ""; } usedRerender(); return; }
     if (a === "u-filter"){ U.filter = t.dataset.f; usedRerender(); return; }
     if (a === "u-scan"){ const form = t.closest("form"); if (form) scanOpen(form); else $("#uScanFile")?.click(); return; }
     if (a === "u-edit"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "edit", id: t.dataset.id }; usedModal(); return; }
@@ -1939,6 +1991,20 @@ document.addEventListener("click", async e => {
       finally{ U.saving = false; U.sig = usedSig(); U.wasOn = usedOn("*"); render(true); }
     }
   }catch(err){ console.warn("Used cars:", err); }
+});
+// No keys: picking a reason shows the required name box
+document.addEventListener("change", e => {
+  const sel = e.target; if (!sel.matches || !sel.matches('[data-action="u-keys-why"]')) return;
+  const more = sel.form && sel.form.querySelector(".nk-more"); if (!more) return;
+  more.classList.toggle("hidden", !sel.value); if (sel.value) setTimeout(() => sel.form.who.focus(), 30);
+});
+document.addEventListener("submit", async e => {
+  const f = e.target; if (!f.dataset || f.dataset.form !== "u-nokeys") return;
+  e.preventDefault();
+  const u = U.list.find(x => x.id === f.dataset.id), why = f.why.value, name = f.who.value.trim(), err = f.querySelector(".nk-err");
+  if (!why) return;
+  if (!name){ err.innerHTML = '<div class="err-msg" role="alert">Type a name first.</div>'; f.who.focus(); return; }
+  if (await usedSetKeys(u, { why, name })){ if (U.modal) usedModal(); usedRerender(); }
 });
 document.addEventListener("submit", async e => {
   const f = e.target; if (!f.dataset || !["u-add","u-team-add","u-edit"].includes(f.dataset.form)) return;
@@ -2647,7 +2713,7 @@ function viewStore(){
   let tUsed = "", tRank = "";
   if (useOn) tUsed = tile("Used cars in detail", '<span class="tm-sub">' + num("t-uo", "Used cars in detail", uo, uo.length + " in", "used") + ' · ' + num("t-ud", "Used cars completed, last 30 days", uDone30, uDone30.length + " completed (30d)", "used") + ' · avg ' + esc(dur(uAvg)) + '</span>',
     uo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + uo.map(u => { const c = usedClock(u, now), l = c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad";
-      return '<tr class="u-' + l + ' tm-click" ' + vsReg("u-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(u.store)) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
+      return '<tr class="u-' + l + (c.nk ? " u-nokeys" : "") + ' tm-click" ' + vsReg("u-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(u.store)) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
       : '<div class="tm-empty">No used cars in detail right now.</div>') ;
   if (useOn) tUsed = tUsed.replace('</div></section>', '<table class="tm-t tm-avg"><thead><tr><th>Finished used cars</th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
       '<tr><td>Cars completed</td>' + UW.map(x => x.l.length ? '<td class="r mono"><span class="tm-n" ' + vsReg("ud" + x.d, "Used cars completed, last " + x.d + " days", x.l, "used") + '>' + x.l.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr>' +
