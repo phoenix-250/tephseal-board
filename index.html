@@ -1045,7 +1045,7 @@ function usedClock(u, now){
   const sd = ms => ms >= 2 * HOUR ? Math.round(ms / HOUR) + "h" : fmtDur(ms);
   let short = u.stage === "done" ? "Completed in " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
   const nk = !!u.noKeys;
-  if (nk){ const why = "NO KEYS · " + (USED_KEY_WHY[u.noKeys.why] || "Other"); txt = why + " (" + (u.noKeys.name || "") + ") · clock paused at " + fmtDur(age); short = why; }
+  if (nk){ const why = "NO KEYS · " + (USED_KEY_WHY[u.noKeys.why] || "Other"); txt = why + " (" + (u.noKeys.name || "") + ") · clock paused at " + fmtDur(age); short = why + (u.noKeys.name ? " · " + u.noKeys.name : ""); }
   return { lvl, txt, age, short, nk };
 }
 const usedDetailers = store => (U.detailers[store] || []).slice().sort((a, b) => a.localeCompare(b));
