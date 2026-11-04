@@ -563,8 +563,14 @@ function urgency(j, now){
   if (left < 30 * MIN) return "warn";
   return "ok";
 }
+// Clocks stop once a car is Ready/Delivered (frozen at readyAt) and resume if it's moved back.
+const jobStopped = j => (j.status === "ready" || j.status === "delivered") && !!j.readyAt;
+const jobClockNow = (j, now) => jobStopped(j) ? j.readyAt : now;
+const jobOnBoard = (j, now) => Math.max(0, jobClockNow(j, now) - (j.createdAt || now) - (j.pausedMs || 0));
+const jobTurn = j => j.readyAt ? Math.max(0, j.readyAt - j.createdAt - (j.pausedMs || 0)) : null;
 function dueText(j, now){
   if (!j.dueAt) return "—";
+  if (jobStopped(j)){ const l = j.dueAt - j.readyAt; return l >= -MIN ? "ready on time" : "ready " + fmtDur(-l) + " late"; }
   const left = j.dueAt - now;
   if (left < 0) return -left < MIN ? "due now" : fmtDur(-left) + " late";
   return "in " + fmtDur(left);
@@ -1006,8 +1012,10 @@ const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
 const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN " + u.vin.slice(-8) : "");
 // Timer runs from when the car is added until Detail & photos done. Green under 24h, yellow 24–48h, red past 48h.
+// Clock stops at Completed; if moved back, it resumes where it stopped (pausedMs = time it sat completed).
+const usedTotal = u => Math.max(0, (u.doneAt || 0) - (u.createdAt || 0) - (u.pausedMs || 0));
 function usedClock(u, now){
-  const end = u.stage === "done" ? (u.doneAt || now) : now, age = Math.max(0, end - (u.createdAt || end));
+  const end = u.stage === "done" ? (u.doneAt || now) : now, age = Math.max(0, end - (u.createdAt || end) - (u.pausedMs || 0));
   const lvl = age < USED_GOAL ? "ok" : age < USED_MAX ? "warn" : "bad";
   let txt;
   if (u.stage === "done") txt = "Completed in " + fmtDur(age);
@@ -1334,7 +1342,7 @@ function usedModal(){
       '<div><dt>Detailer</dt><dd>' + esc(u.detailer || "Not assigned") + '</dd></div>' +
       '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
       (u.stage !== "done" ? '<div><dt>In this stage</dt><dd>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</dd></div>' : "") +
-      (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div><div><dt>Total time</dt><dd>' + esc(fmtDur(u.doneAt - u.createdAt)) + '</dd></div>' : "") + '</dl>' +
+      (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div><div><dt>Total time</dt><dd>' + esc(fmtDur(usedTotal(u))) + '</dd></div>' : "") + '</dl>' +
       (u.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(u.notes) + '</p>' : "") +
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
     ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
@@ -1871,6 +1879,7 @@ async function usedSetStage(u, to){
   if (!u || u.stage === to || !USED_STAGES[to] || !usedPerm(S.role).move || U.busy) return;
   const now = Date.now(), patch = { stage: to, stageAt: now, log: usedLog(u, "Moved to " + USED_STAGES[to]) };
   if (to === "progress" && !u.startedAt) patch.startedAt = now;
+  if (u.stage === "done" && to !== "done" && u.doneAt) patch.pausedMs = (u.pausedMs || 0) + Math.max(0, now - u.doneAt);
   patch.doneAt = to === "done" ? now : null;
   U.busy = true;
   try{ await usedApi.update(u, patch); toast(usedVeh(u) + ": " + USED_STAGES[to].toLowerCase()); }
@@ -2387,7 +2396,7 @@ function viewQueue(){
       '<button class="job-main" data-action="open" data-id="' + esc(j.id) + '"><div class="job-title">' + esc(vehicle(j)) + (j.color ? ' <span class="muted" style="font-weight:500">' + esc(j.color) + '</span>' : "") + '</div>' +
       '<div class="job-meta"><span>#<b>' + esc(j.stock) + '</b></span><span>' + esc(j.salesperson) + '</span>' +
       (S.store === "*" ? '<span>' + esc(storeName(j.store)) + '</span>' : "") +
-      (j.status === "delivered" ? '<span>Delivered ' + esc(fmtTime(j.deliveredAt)) + '</span>' : '<span>Due <b' + (u === "bad" ? ' style="color:var(--bad)"' : "") + '>' + esc(dueText(j, now)) + '</b></span><span>On board ' + esc(fmtDur(now - j.createdAt)) + '</span>') +
+      (j.status === "delivered" ? '<span>Delivered ' + esc(fmtTime(j.deliveredAt)) + '</span>' : '<span>Due <b' + (u === "bad" ? ' style="color:var(--bad)"' : "") + '>' + esc(dueText(j, now)) + '</b></span><span>' + (jobStopped(j) ? "Turn time " : "On board ") + esc(fmtDur(jobOnBoard(j, now))) + '</span>') +
       '<span class="pill ' + j.status + '">' + STATUS[j.status] + '</span>' +
       (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div></button>' +
       '<div class="job-act">' + act + '</div></div>';
@@ -2547,7 +2556,7 @@ function viewStore(){
   const ready = open.filter(j => j.status === "ready"), late = open.filter(j => urgency(j, now) === "bad");
   const fin = d => all.filter(j => j.readyAt && j.dueAt && j.readyAt >= now - d * DAY).sort((a, b) => b.readyAt - a.readyAt);
   const onTime = l => l.length ? Math.round(l.filter(j => j.readyAt <= j.dueAt + MIN).length / l.length * 100) : null;
-  const turn = l => { const x = l.filter(j => j.createdAt && j.readyAt > j.createdAt); return x.length ? x.reduce((a, j) => a + (j.readyAt - j.createdAt), 0) / x.length : null; };
+  const turn = l => { const x = l.filter(j => j.createdAt && j.readyAt > j.createdAt); return x.length ? x.reduce((a, j) => a + jobTurn(j), 0) / x.length : null; };
   const prodN = l => l.reduce((a, j) => a + (j.products || []).length, 0);
   const W = [30, 60, 90].map(d => { const f = fin(d), dl = last(d); return { d, fin: f, del: dl, ot: onTime(f), turn: turn(f), ppc: dl.length ? prodN(dl) / dl.length : null, perDay: dl.length / d }; });
   const oldest = all.reduce((m, j) => Math.min(m, j.createdAt || now), now), haveDays = Math.max(1, Math.round((now - oldest) / DAY));
@@ -2555,9 +2564,9 @@ function viewStore(){
   const useOn = !!v.used && uSafe(() => (multi ? stores().some(x => usedOn(x.id)) : usedOn(S.store)) && U.loaded, false);
   const ul = useOn ? uSafe(() => usedFor(S.store), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const uDone30 = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - 30 * DAY).sort((a, b) => b.doneAt - a.doneAt), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
-  const uAvg = uDone30.length ? uDone30.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / uDone30.length : null;
+  const uAvg = uDone30.length ? uDone30.reduce((a, u) => a + usedTotal(u), 0) / uDone30.length : null;
   const UW = [30, 60, 90].map(d => { const l = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - d * DAY).sort((a, b) => b.doneAt - a.doneAt);
-    return { d, l, avg: l.length ? l.reduce((a, u) => a + (u.doneAt - u.createdAt), 0) / l.length : null, in24: l.length ? Math.round(l.filter(u => u.doneAt - u.createdAt <= USED_GOAL).length / l.length * 100) : null, over48: l.filter(u => u.doneAt - u.createdAt > USED_MAX) }; });
+    return { d, l, avg: l.length ? l.reduce((a, u) => a + usedTotal(u), 0) / l.length : null, in24: l.length ? Math.round(l.filter(u => usedTotal(u) <= USED_GOAL).length / l.length * 100) : null, over48: l.filter(u => usedTotal(u) > USED_MAX) }; });
   const tm = t => new Date(t).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
   const veh = j => esc(vehicle(j));
   const tile = (head, right, body) => '<section class="tm-p"><header><h3>' + head + '</h3>' + (right || "") + '</header><div class="tm-body">' + body + '</div></section>';
@@ -2605,7 +2614,7 @@ function viewStore(){
   const rows = sortJobs(open).sort((a, b) => (a.status === "ready") - (b.status === "ready"));
   h += row("rA", [
     v.now ? tile("Live board", '<span class="tm-sub">' + num("t-open", "In the shop", rows, open.length + " in shop") + '</span>', rows.length ? '<table class="tm-t tm-live-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Sales</th><th>Status</th><th class="r">Due</th><th class="r">Clock</th></tr></thead><tbody>' + rows.map(j => { const u = urgency(j, now);
-      return '<tr class="u-' + u + ' tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(j.status === "ready" ? "ready " + fmtDur(now - (j.readyAt || now)) : dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
+      return '<tr class="u-' + u + ' tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
       : '<div class="tm-empty">No cars in the shop right now.</div>') : "",
     v.today ? tile("Delivered today", '<span class="tm-sub">' + num("t-today", "Delivered today", today, today.length) + '</span>', today.length ? '<table class="tm-t tm-del-t"><thead><tr><th>Time</th><th>Stock</th><th>Vehicle</th><th>Sales</th><th class="r">Prod</th></tr></thead><tbody>' + today.map(j =>
       '<tr class="tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(tm(j.deliveredAt)) + '</td><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td class="r mono">' + ((j.products || []).length || "—") + '</td></tr>').join("") + '</tbody></table>'
@@ -2675,9 +2684,9 @@ function viewBoard(){
       (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div>' +
       '<div class="veh">' + esc(vehicle(j)) + '</div>' + (j.color ? '<div class="vcolor">' + esc(j.color) + '</div>' : "") +
       '<dl class="card-stats"><div><dt>Salesperson</dt><dd>' + esc(j.salesperson || "—") + '</dd></div>' +
-      (j.status === "ready" ? '<div><dt>Ready for</dt><dd>' + esc(fmtDur(now - (j.readyAt || now))) + '</dd></div>'
+      (j.status === "ready" ? '<div><dt>Ready at ' + esc(fmtTime(j.readyAt)) + '</dt><dd class="' + (j.dueAt && j.readyAt > j.dueAt + MIN ? "due-bad" : "due-ok") + '">' + esc(dueText(j, now)) + '</dd></div>'
         : '<div><dt>Due ' + esc(fmtTime(j.dueAt)) + '</dt><dd class="' + dueCls + '">' + esc(dueText(j, now)) + '</dd></div>') +
-      '<div><dt>On board</dt><dd>' + esc(fmtDur(now - j.createdAt)) + '</dd></div></dl>' +
+      '<div><dt>' + (jobStopped(j) ? "Turn time" : "On board") + '</dt><dd>' + esc(fmtDur(jobOnBoard(j, now))) + '</dd></div></dl>' +
       (j.products && j.products.length ? '<div class="prods">' + j.products.map(p => '<span class="prod">' + esc(p) + '</span>').join("") + '</div>' : "") +
       (j.notes ? '<div class="vcolor" style="margin-top:8px;font-size:16px">Note: ' + esc(j.notes) + '</div>' : "") +
       '</button>';
@@ -2704,7 +2713,7 @@ function viewBoard(){
 function storeStats(id, now){
   const all = byStore(id), act = all.filter(j => j.status !== "delivered");
   const turned = all.filter(j => j.readyAt && isToday(j.readyAt));
-  const avg = turned.length ? turned.reduce((s, j) => s + (j.readyAt - j.createdAt), 0) / turned.length : null;
+  const avg = turned.length ? turned.reduce((s, j) => s + jobTurn(j), 0) / turned.length : null;
   return {
     act, waiting: act.filter(j => j.status === "queued").length, working: act.filter(j => j.status === "working").length,
     ready: act.filter(j => j.status === "ready").length, over: act.filter(j => urgency(j, now) === "bad"),
@@ -3093,8 +3102,8 @@ function renderSheet(){
     '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">#' + esc(j.stock) + '  ·  ' + esc(storeName(j.store)) + '</div><h2 id="sheetTitle">' + esc(vehicle(j)) + '</h2><div class="row" style="margin-top:6px"><span class="pill ' + j.status + '">' + STATUS[j.status] + '</span>' + (j.color ? '<span class="muted">' + esc(j.color) + '</span>' : "") + (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div></div><button class="x" data-action="close" aria-label="Close">×</button></div>' +
     '<div class="sec"><dl class="times"><div><dt>Salesperson</dt><dd>' + esc(j.salesperson || "—") + '</dd></div>' + (j.customer ? '<div><dt>Customer</dt><dd>' + esc(j.customer) + '</dd></div>' : "") +
       '<div><dt>Ready by</dt><dd>' + esc(fmtTime(j.dueAt)) + (j.status !== "delivered" && j.status !== "ready" ? ' (' + esc(dueText(j, now)) + ')' : "") + '</dd></div><div><dt>Sent to shop</dt><dd>' + esc(fmtTime(j.createdAt)) + '</dd></div>' +
-      (j.status !== "delivered" ? '<div><dt>On board</dt><dd>' + esc(fmtDur(now - j.createdAt)) + '</dd></div>' : "") +
-      (j.readyAt ? '<div><dt>Turn time</dt><dd>' + esc(fmtDur(j.readyAt - j.createdAt)) + '</dd></div>' : "") + '</dl>' +
+      (!jobStopped(j) ? '<div><dt>On board</dt><dd>' + esc(fmtDur(jobOnBoard(j, now))) + '</dd></div>' : "") +
+      (jobStopped(j) ? '<div><dt>Turn time</dt><dd>' + esc(fmtDur(jobTurn(j))) + '</dd></div>' : "") + '</dl>' +
       (j.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(j.notes) + '</p>' : "") + '</div>' +
     statusSec + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (j.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
@@ -3112,7 +3121,11 @@ async function setStatus(j, to){
   if (to === "working" && !j.startedAt) patch.startedAt = Date.now();
   if (to === "ready") patch.readyAt = Date.now();
   if (to === "delivered") patch.deliveredAt = Date.now();
-  if (to === "queued"){ patch.readyAt = null; patch.deliveredAt = null; }
+  if (to === "queued" || to === "working"){
+    // Moved back from Ready/Delivered: resume the clock where it stopped (push the due time out by the time it sat).
+    if (jobStopped(j)){ const gap = Math.max(0, Date.now() - j.readyAt); patch.pausedMs = (j.pausedMs || 0) + gap; if (j.dueAt) patch.dueAt = j.dueAt + gap; }
+    patch.readyAt = null; patch.deliveredAt = null;
+  }
   try{ await api.update(j.id, patch); toast(vehicle(j) + " is now " + STATUS[to].toLowerCase()); if (to === "delivered") promptReview(j.id); }catch(e){}
 }
 
