@@ -37,6 +37,7 @@ img{ max-width:100%; }
 button,input,select,textarea{ font:inherit; color:inherit; }
 button{ cursor:pointer; }
 :focus-visible{ outline:3px solid var(--brand); outline-offset:2px; }
+body.tv :focus{ outline:6px solid #ffd400 !important; outline-offset:3px; box-shadow:0 0 0 10px rgba(255,212,0,.35); opacity:1 !important; }
 .hidden{ display:none !important; }
 
 /* Header */
@@ -3393,6 +3394,61 @@ if (S.tvAgain){
   try{ document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); }catch(e){}
 }
 S.sound = false; // browsers need a tap each visit to allow sound
+
+/* --- TV remote: arrow buttons jump to the nearest button in that direction (not around the whole screen) --- */
+(function(){
+  const SEL = 'button:not([disabled]), a[href], [tabindex="0"], input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea';
+  const DIRS = { ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right", Up:"up", Down:"down", Left:"left", Right:"right" };
+  const KC = { 37:"left", 38:"up", 39:"right", 40:"down", 19:"up", 20:"down", 21:"left", 22:"right" };
+  const visible = el => { const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return false;
+    if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
+    const cs = getComputedStyle(el); return cs.visibility !== "hidden" && cs.display !== "none"; };
+  const layer = () => { const d = [...document.querySelectorAll('[role="dialog"]')].filter(visible); return d.length ? d[d.length - 1] : document; };
+  const candidates = () => [...layer().querySelectorAll(SEL)].filter(visible);
+  function move(dir){
+    const list = candidates(); if (!list.length) return false;
+    const cur = document.activeElement;
+    if (!cur || cur === document.body || !list.includes(cur)){
+      // Nothing picked yet: start at the top-right buttons (TV mode / chime)
+      const top = list.slice().sort((a, b) => { const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(); return (ra.top - rb.top) || (rb.left - ra.left); });
+      top[0].focus(); return true;
+    }
+    const c = cur.getBoundingClientRect(), cx = c.left + c.width / 2, cy = c.top + c.height / 2;
+    let best = null, score = Infinity;
+    for (const el of list){
+      if (el === cur) continue;
+      const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      let main, side;
+      if (dir === "right"){ if (r.left < c.right - 4 && x <= cx + 4) continue; main = Math.max(0, r.left - c.right); side = Math.max(0, Math.max(r.top, c.top) > Math.min(r.bottom, c.bottom) ? Math.abs(y - cy) : 0); }
+      else if (dir === "left"){ if (r.right > c.left + 4 && x >= cx - 4) continue; main = Math.max(0, c.left - r.right); side = Math.max(0, Math.max(r.top, c.top) > Math.min(r.bottom, c.bottom) ? Math.abs(y - cy) : 0); }
+      else if (dir === "down"){ if (r.top < c.bottom - 4 && y <= cy + 4) continue; main = Math.max(0, r.top - c.bottom); side = Math.max(r.left, c.left) > Math.min(r.right, c.right) ? Math.abs(x - cx) : 0; }
+      else { if (r.bottom > c.top + 4 && y >= cy - 4) continue; main = Math.max(0, c.top - r.bottom); side = Math.max(r.left, c.left) > Math.min(r.right, c.right) ? Math.abs(x - cx) : 0; }
+      const s = main + side * 3;
+      if (s < score){ score = s; best = el; }
+    }
+    if (best){ best.focus({ preventScroll:false }); try{ best.scrollIntoView({ block:"nearest", inline:"nearest" }); }catch(e){} }
+    return true;
+  }
+  addEventListener("keydown", e => {
+    const dir = DIRS[e.key] || KC[e.keyCode]; if (!dir || e.altKey || e.ctrlKey || e.metaKey) return;
+    const a = document.activeElement;
+    if (a && (/^(TEXTAREA|SELECT)$/.test(a.tagName) || (a.tagName === "INPUT" && !/^(checkbox|radio|button|submit)$/i.test(a.type)))) return; // let typing work normally
+    if (move(dir)){ e.preventDefault(); e.stopPropagation(); }
+  }, true);
+
+  // The board redraws every few seconds; keep the remote's highlight on the same button.
+  const keyOf = el => el && el !== document.body && el.closest && el.closest("#main") && el.dataset
+    ? [el.dataset.action || "", el.dataset.id || "", el.textContent.trim().slice(0, 30)] : null;
+  const findKey = k => [...document.querySelectorAll("#main " + SEL)].find(el => (el.dataset.action || "") === k[0] && (el.dataset.id || "") === k[1])
+    || [...document.querySelectorAll("#main " + SEL)].find(el => (el.dataset.action || "") === k[0] && !k[1]);
+  const orig = renderMain;
+  renderMain = function(){
+    const k = keyOf(document.activeElement);
+    const out = orig.apply(this, arguments);
+    if (k){ const el = findKey(k); if (el && el !== document.activeElement) try{ el.focus({ preventScroll:true }); }catch(e){} }
+    return out;
+  };
+})();
 })();
 </script>
 </body>
