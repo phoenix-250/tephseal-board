@@ -1322,10 +1322,11 @@ function usedSwitchPanel(){
 
 /* --- pop-up (its own layer, separate from the delivery sheet) --- */
 function usedRoot(){ let r = document.getElementById("usedRoot"); if (!r){ r = document.createElement("div"); r.id = "usedRoot"; document.body.appendChild(r); } return r; }
-function usedClose(){ scanStop(); const back = U.modal && U.modal.kind === "team" && U.modal.back; U.modal = back ? { kind: "view", id: back } : null; if (back){ usedModal(); return; } usedRoot().innerHTML = ""; }
+function usedClose(){ scanStop(); const back = U.modal && U.modal.kind === "team" && U.modal.back, id = U.modal && U.modal.id; U.modal = back ? { kind: "view", id: back } : null; if (back){ usedModal(); return; } usedRoot().innerHTML = ""; tvHistPop(); tvRefocus(id); }
 function usedModal(){
   const root = usedRoot();
   if (!U.modal){ root.innerHTML = ""; return; }
+  tvHistPush();
   const wrap = (title, sub, body) => '<div class="backdrop" data-action="u-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="uTitle">' +
     '<div class="sheet-head"><div style="flex:1;min-width:0">' + (sub ? '<div class="muted">' + sub + '</div>' : "") + '<h2 id="uTitle">' + title + '</h2></div><button class="x" data-action="u-close" aria-label="Close">×</button></div>' + body + '</div></div>';
   if (U.modal.kind === "add"){
@@ -1368,7 +1369,7 @@ function usedModal(){
       '<div class="sec"><div class="nk-box">NO KEYS · ' + esc(USED_KEY_WHY[nk.why] || "Other") + ' · ' + esc(nk.name || "") + '<div class="muted" style="font-weight:500">Since ' + esc(fmtTime(nk.at)) + ' · clock paused</div></div>' +
       '<h2 style="margin:16px 0 12px">Did you get the keys back?</h2>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn primary" style="font-size:20px;padding:16px" data-action="u-keys-back" data-id="' + esc(u.id) + '">Yes</button>' +
-      '<button class="btn" style="font-size:20px;padding:16px" data-action="u-keys-no" data-id="' + esc(u.id) + '">No</button></div></div>');
+      '<button class="btn" style="font-size:20px;padding:16px" data-action="u-keys-no" data-id="' + esc(u.id) + '">No</button></div></div>' + tvCloseBtn("u-close"));
     setTimeout(() => root.querySelector('[data-action="u-keys-back"]')?.focus(), 30);
     return;
   }
@@ -1388,7 +1389,7 @@ function usedModal(){
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
     ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
       (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div></div>' : "") +
-    usedKeysSec(u, p, w) + stageSec + dpSlot("used", dpItem("used", u.id)) +
+    usedKeysSec(u, p, w) + stageSec + tvCloseBtn("u-close") + dpSlot("used", dpItem("used", u.id)) +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec);
   setTimeout(() => root.querySelector(".x")?.focus(), 30);
@@ -1955,7 +1956,7 @@ document.addEventListener("click", async e => {
     if (a === "u-new"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "add" }; usedModal(); return; }
     if (a === "u-open"){ const u = find(); U.modal = { kind: (u && u.noKeys && usedPerm(S.role).move && S.canWrite) ? "keys" : "view", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-keys-no"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
-    if (a === "u-keys-back"){ const u = find(); if (await usedSetKeys(u, null)){ U.modal = U.modal && U.modal.kind === "keys" ? null : U.modal; if (U.modal) usedModal(); else usedRoot().innerHTML = ""; } usedRerender(); return; }
+    if (a === "u-keys-back"){ const u = find(); if (await usedSetKeys(u, null)){ U.modal = U.modal && U.modal.kind === "keys" ? null : U.modal; if (U.modal) usedModal(); else { usedRoot().innerHTML = ""; tvHistPop(); tvRefocus(t.dataset.id); } } usedRerender(); return; }
     if (a === "u-filter"){ U.filter = t.dataset.f; usedRerender(); return; }
     if (a === "u-more"){ U.more = U.more || {}; U.more[t.dataset.k] = !U.more[t.dataset.k]; usedRerender(); return; }
     if (a === "u-scan"){ const form = t.closest("form"); if (form) scanOpen(form); else $("#uScanFile")?.click(); return; }
@@ -1975,7 +1976,7 @@ document.addEventListener("click", async e => {
       catch(err){ toast("That didn't save. Check your connection and try again.", true); }
       U.busy = false; usedModal(); usedRerender(); return;
     }
-    if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (U.modal && U.modal.kind === "view") usedModal(); usedRerender(); return; }
+    if (a === "u-stage"){ await usedSetStage(find(), t.dataset.to); if (S.tv && U.modal && U.modal.kind === "view"){ usedClose(); usedRerender(); return; } if (U.modal && U.modal.kind === "view") usedModal(); usedRerender(); return; }
     if (a === "u-del"){
       const u = find(); if (!u || !usedPerm(S.role).del) return;
       if (!U.modal.confirmDel){ U.modal.confirmDel = true; usedModal(); setTimeout(() => { if (U.modal && U.modal.confirmDel){ U.modal.confirmDel = false; usedModal(); } }, 5000); return; }
@@ -3141,6 +3142,24 @@ function viewSettings(){
     reviewsSwitchPanel() + usedSwitchPanel() + dpSwitchPanel() + alertsPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
 }
 
+/* --- TV remote: the Back button closes pop-ups ---
+   On the TV, opening a car adds a step to the browser history so the remote's Back button closes it
+   (instead of doing nothing or leaving the board). Phones and computers are unchanged. */
+let tvHist = false;
+function tvHistPush(){ if (!S.tv || tvHist) return; try{ history.pushState({ tsModal: 1 }, ""); tvHist = true; }catch(e){} }
+function tvHistPop(){ if (!tvHist) return; tvHist = false; try{ if (history.state && history.state.tsModal) history.back(); }catch(e){} }
+addEventListener("popstate", () => { if (!tvHist) return; tvHist = false; try{ if (S.sheet) closeSheet(); if (U.modal) usedClose(); }catch(e){} });
+const BACK_KEYS = new Set(["Escape", "GoBack", "BrowserBack", "Back"]);
+addEventListener("keydown", e => {
+  if (!S.tv || !(BACK_KEYS.has(e.key) || [4, 27, 461, 10009].includes(e.keyCode))) return;
+  if (!S.sheet && !U.modal) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  try{ if (S.sheet) closeSheet(); else if (U.modal){ usedClose(); if (!U.modal) tvHistPop(); } }catch(err){}
+}, true);
+// After closing on the TV, put the remote's highlight back on that car.
+function tvRefocus(id){ if (!S.tv || !id) return; setTimeout(() => { const el = document.querySelector('#main [data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); if (el) try{ el.focus({ preventScroll:false }); }catch(e){} }, 60); }
+const tvCloseBtn = act => S.tv ? '<div class="sec"><button class="btn big" style="width:100%;font-size:22px;padding:16px" data-action="' + act + '">✕ Close</button></div>' : "";
+
 /* --- Job sheet --- */
 function renderSheet(){
   const root = $("#sheetRoot");
@@ -3172,7 +3191,7 @@ function renderSheet(){
       '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">#' + esc(j.stock) + '  ·  ' + esc(storeName(j.store)) + '</div><h2 id="sheetTitle">' + esc(vehicle(j)) + '</h2></div><button class="x" data-action="close" aria-label="Close">×</button></div>' +
       '<div class="sec">' + jobKeysBox(j) + '<h2 style="margin:16px 0 12px">Did you get the keys back?</h2>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn primary" style="font-size:20px;padding:16px" data-action="j-keys-back" data-id="' + esc(j.id) + '">Yes</button>' +
-      '<button class="btn" style="font-size:20px;padding:16px" data-action="j-keys-no" data-id="' + esc(j.id) + '">No</button></div></div></div></div>';
+      '<button class="btn" style="font-size:20px;padding:16px" data-action="j-keys-no" data-id="' + esc(j.id) + '">No</button></div></div>' + tvCloseBtn("close") + '</div></div>';
     setTimeout(() => root.querySelector('[data-action="j-keys-back"]')?.focus(), 30);
     return;
   }
@@ -3194,15 +3213,15 @@ function renderSheet(){
       (!jobStopped(j) ? '<div><dt>On board</dt><dd>' + esc(fmtDur(jobOnBoard(j, now))) + '</dd></div>' : "") +
       (jobStopped(j) ? '<div><dt>Turn time</dt><dd>' + esc(fmtDur(jobTurn(j))) + '</dd></div>' : "") + '</dl>' +
       (j.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(j.notes) + '</p>' : "") + '</div>' +
-    jobKeysSec(j, p, w) + statusSec + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
+    jobKeysSec(j, p, w) + statusSec + tvCloseBtn("close") + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (j.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec + '</div></div>';
   const sh = root.querySelector(".sheet"); sh.scrollTop = keepScroll;
   if (S.sheet.focus === "products" && !S.sheet.focused){ S.sheet.focused = true; root.querySelector("#prodSec")?.scrollIntoView({block:"center"}); }
   if (S.sheet.focus === "review" && !S.sheet.focused){ S.sheet.focused = true; root.querySelector("#rvSec")?.scrollIntoView({block:"center"}); }
 }
-function openSheet(id, focus){ S.sheet = { id, focus }; renderSheet(); setTimeout(() => $("#sheetRoot .x")?.focus(), 30); }
-function closeSheet(){ S.sheet = null; $("#sheetRoot").innerHTML = ""; }
+function openSheet(id, focus){ S.sheet = { id, focus }; tvHistPush(); renderSheet(); setTimeout(() => $("#sheetRoot .x")?.focus(), 30); }
+function closeSheet(){ const id = S.sheet && S.sheet.id; S.sheet = null; $("#sheetRoot").innerHTML = ""; tvHistPop(); tvRefocus(id); }
 function addLog(j, a){ return (j.log || []).concat([{ t: Date.now(), by: S.me || ROLES[S.role].label, a }]).slice(-30); }
 async function setStatus(j, to){
   if (j.status === to) return;
@@ -3298,7 +3317,7 @@ document.addEventListener("click", async e => {
       if (await jobSetKeys(j, null)){ if (ask) closeSheet(); else if (S.sheet){ S.sheet.rendered = false; renderSheet(); } } break; }
     case "close": closeSheet(); break;
     case "advance": { const j = job(); const n = j && nextStep(j); if (n) await setStatus(j, n.to); break; }
-    case "set-status": { const j = job(); if (j) await setStatus(j, t.dataset.s); break; }
+    case "set-status": { const j = job(); if (j){ await setStatus(j, t.dataset.s); if (S.tv && S.sheet) closeSheet(); } break; }
     case "save-prods": { const j = job(); if (!j) break;
       const sel = [...document.querySelectorAll('[data-form="prods"] input:checked')].map(i => i.value);
       try{ await api.update(j.id, { products: sel, log: addLog(j, "Products updated (" + (sel.length ? sel.join(", ") : "none") + ")") }); toast("Products saved"); }catch(err){} break; }
