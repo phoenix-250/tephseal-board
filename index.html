@@ -255,6 +255,10 @@ body.tv{ background:var(--shop-bg); }
 .tm-t tr.u-nokeys td{ background:#E00000; color:#fff !important; } .tm-t tr.u-nokeys td *{ color:#fff !important; }
 .nk-box{ background:#E00000; color:#fff; border-radius:12px; padding:14px; font-weight:700; }
 .nk-box .muted{ color:#ffe0e0; }
+.card.nokeys{ background:#E00000 !important; color:#fff !important; box-shadow:0 0 0 3px #ff4d4d; animation:nkPulse 2s ease-in-out infinite; }
+.card.nokeys::before{ background:#7a0000 !important; } .card.nokeys *{ color:#fff !important; }
+.nk-line{ font-family:var(--cond); font-weight:800; font-size:clamp(18px,1.6vw,28px); margin-top:6px; letter-spacing:.3px; }
+button.u-more{ background:none; border:0; text-align:left; cursor:pointer; text-decoration:underline; font-weight:700; color:var(--shop-ink); min-height:40px; font-size:16px; }
 .u-t-ok{ color:var(--shop-ok); } .u-t-warn{ color:var(--shop-warn); } .u-t-bad{ color:var(--shop-bad); font-weight:700; }
 .u-c-ok{ color:var(--ok); } .u-c-warn{ color:var(--warn); } .u-c-bad{ color:var(--bad); }
 .u-more,.u-none{ color:var(--shop-muted); font-size:clamp(14px,1vw,18px); padding:2px 4px; }
@@ -565,22 +569,26 @@ const activeJobs = id => byStore(id).filter(j => j.status !== "delivered");
 function urgency(j, now){
   if (j.status === "ready") return "ready";
   if (j.status === "delivered") return "";
-  const left = (j.dueAt || 0) - now;
+  const left = (j.dueAt || 0) - (jobNoKeys(j) ? jobKeysAt(j, now) : now);
   if (left < 0) return "bad";
   if (left < 30 * MIN) return "warn";
   return "ok";
 }
 // Clocks stop once a car is Ready/Delivered (frozen at readyAt) and resume if it's moved back.
 const jobStopped = j => (j.status === "ready" || j.status === "delivered") && !!j.readyAt;
-const jobClockNow = (j, now) => jobStopped(j) ? j.readyAt : now;
+// No keys (deliveries): while the keys are out the clock and the due time freeze; keys back pushes the due time out by the time it sat.
+const JOB_KEY_WHY = { service:"Service", sales:"Sales", other:"Other" };
+const jobNoKeys = j => !!(j && j.noKeys) && (j.status === "queued" || j.status === "working");
+const jobKeysAt = (j, now) => Math.min(now, j.noKeys.at || now);
+const jobClockNow = (j, now) => jobStopped(j) ? j.readyAt : jobNoKeys(j) ? jobKeysAt(j, now) : now;
 const jobOnBoard = (j, now) => Math.max(0, jobClockNow(j, now) - (j.createdAt || now) - (j.pausedMs || 0));
 const jobTurn = j => j.readyAt ? Math.max(0, j.readyAt - j.createdAt - (j.pausedMs || 0)) : null;
 function dueText(j, now){
   if (!j.dueAt) return "—";
   if (jobStopped(j)){ const l = j.dueAt - j.readyAt; return l >= -MIN ? "ready on time" : "ready " + fmtDur(-l) + " late"; }
-  const left = j.dueAt - now;
-  if (left < 0) return -left < MIN ? "due now" : fmtDur(-left) + " late";
-  return "in " + fmtDur(left);
+  const nk = jobNoKeys(j), left = j.dueAt - (nk ? jobKeysAt(j, now) : now), pre = nk ? "paused · " : "";
+  if (left < 0) return pre + (-left < MIN ? "due now" : fmtDur(-left) + " late");
+  return pre + "in " + fmtDur(left);
 }
 function vehicle(j){ return [j.year, j.make, j.model].filter(Boolean).join(" ") || "Vehicle"; }
 function sortJobs(list){ return list.slice().sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0)); }
@@ -1228,7 +1236,7 @@ function usedStrip(store){
   return uSafe(() => {
     if (!usedOn(store) || !U.loaded) return "";
     const now = Date.now(), all = usedFor(store);
-    const cap = S.tv ? 999 : 6;   // TV shows them all: fitTV() shrinks to fit, then pages on its own
+    const capFor = k => S.tv || (U.more && U.more[k]) ? 999 : 6;   // TV shows them all: fitTV() shrinks to fit, then pages on its own; phones tap "+N more" to open the rest
     const cols = [
       ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
@@ -1242,7 +1250,9 @@ function usedStrip(store){
       '<span class="u-time u-t-' + c.lvl + '">' + esc(c.short) + '</span></button>'; };
     return '<div class="used-strip" aria-label="Used cars"><div class="used-grid">' + cols.map(([k, l, list]) =>
       '<div class="u-col"><div class="u-head"><h3>Used · <b>' + l + '</b></h3><span class="count">' + list.length + '</span></div><div class="u-list">' +
-      (list.length ? list.slice(0, cap).map(u => item(u, k)).join("") + (list.length > cap ? '<div class="u-more">+' + (list.length - cap) + ' more</div>' : "") : '<div class="u-none">None right now.</div>') + '</div></div>'
+      (list.length ? list.slice(0, capFor(k)).map(u => item(u, k)).join("") +
+        (list.length > capFor(k) ? '<button class="u-more" data-action="u-more" data-k="' + k + '">+' + (list.length - capFor(k)) + ' more — tap to see</button>'
+          : (!S.tv && list.length > 6 ? '<button class="u-more" data-action="u-more" data-k="' + k + '">Show less</button>' : "")) : '<div class="u-none">None right now.</div>') + '</div></div>'
     ).join("") + '</div></div>';
   }, "");
 }
@@ -1947,6 +1957,7 @@ document.addEventListener("click", async e => {
     if (a === "u-keys-no"){ U.modal = { kind: "view", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-keys-back"){ const u = find(); if (await usedSetKeys(u, null)){ U.modal = U.modal && U.modal.kind === "keys" ? null : U.modal; if (U.modal) usedModal(); else usedRoot().innerHTML = ""; } usedRerender(); return; }
     if (a === "u-filter"){ U.filter = t.dataset.f; usedRerender(); return; }
+    if (a === "u-more"){ U.more = U.more || {}; U.more[t.dataset.k] = !U.more[t.dataset.k]; usedRerender(); return; }
     if (a === "u-scan"){ const form = t.closest("form"); if (form) scanOpen(form); else $("#uScanFile")?.click(); return; }
     if (a === "u-edit"){ if (!usedPerm(S.role).add || !S.canWrite) return; U.modal = { kind: "edit", id: t.dataset.id }; usedModal(); return; }
     if (a === "u-color"){
@@ -2458,11 +2469,12 @@ function viewQueue(){
     const next = nextStep(j);
     if (next && S.canWrite) act += '<button class="btn primary" data-action="advance" data-id="' + esc(j.id) + '">' + next.label + '</button>';
     act += rateButton(j);
-    return '<div class="job-row u-' + u + '"><div class="bar"></div>' +
+    return '<div class="job-row u-' + u + (jobNoKeys(j) ? " u-nokeys" : "") + '"><div class="bar"></div>' +
       '<button class="job-main" data-action="open" data-id="' + esc(j.id) + '"><div class="job-title">' + esc(vehicle(j)) + (j.color ? ' <span class="muted" style="font-weight:500">' + esc(j.color) + '</span>' : "") + '</div>' +
       '<div class="job-meta"><span>#<b>' + esc(j.stock) + '</b></span><span>' + esc(j.salesperson) + '</span>' +
       (S.store === "*" ? '<span>' + esc(storeName(j.store)) + '</span>' : "") +
       (j.status === "delivered" ? '<span>Delivered ' + esc(fmtTime(j.deliveredAt)) + '</span>' : '<span>Due <b' + (u === "bad" ? ' style="color:var(--bad)"' : "") + '>' + esc(dueText(j, now)) + '</b></span><span>' + (jobStopped(j) ? "Turn time " : "On board ") + esc(fmtDur(jobOnBoard(j, now))) + '</span>') +
+      (jobNoKeys(j) ? '<span><b>NO KEYS · ' + esc(JOB_KEY_WHY[j.noKeys.why] || "Other") + ' · ' + esc(j.noKeys.name || "") + '</b></span>' : "") +
       '<span class="pill ' + j.status + '">' + STATUS[j.status] + '</span>' +
       (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div></button>' +
       '<div class="job-act">' + act + '</div></div>';
@@ -2680,7 +2692,7 @@ function viewStore(){
   const rows = sortJobs(open).sort((a, b) => (a.status === "ready") - (b.status === "ready"));
   h += row("rA", [
     v.now ? tile("Live board", '<span class="tm-sub">' + num("t-open", "In the shop", rows, open.length + " in shop") + '</span>', rows.length ? '<table class="tm-t tm-live-t"><thead><tr><th>Stock</th><th>Vehicle</th><th>Sales</th><th>Status</th><th class="r">Due</th><th class="r">Clock</th></tr></thead><tbody>' + rows.map(j => { const u = urgency(j, now);
-      return '<tr class="u-' + u + ' tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + stLbl[j.status] + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
+      return '<tr class="u-' + u + (jobNoKeys(j) ? " u-nokeys" : "") + ' tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (j.color ? ' <span class="dim">' + esc(j.color) + '</span>' : "") + (j.waiting ? ' <span class="tm-tag">WAITING CUST</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td><span class="tm-st ' + j.status + '">' + (jobNoKeys(j) ? "NO KEYS" : stLbl[j.status]) + '</span></td><td class="r mono">' + esc(j.dueAt ? tm(j.dueAt) : "—") + '</td><td class="r mono c-' + u + '">' + esc(dueText(j, now)) + '</td></tr>'; }).join("") + '</tbody></table>'
       : '<div class="tm-empty">No cars in the shop right now.</div>') : "",
     v.today ? tile("Delivered today", '<span class="tm-sub">' + num("t-today", "Delivered today", today, today.length) + '</span>', today.length ? '<table class="tm-t tm-del-t"><thead><tr><th>Time</th><th>Stock</th><th>Vehicle</th><th>Sales</th><th class="r">Prod</th></tr></thead><tbody>' + today.map(j =>
       '<tr class="tm-click" ' + vsReg("j-" + j.id, "#" + j.stock + " " + vehicle(j), [j]) + '><td class="mono">' + esc(tm(j.deliveredAt)) + '</td><td class="mono">' + esc(j.stock) + '</td><td>' + veh(j) + (multi ? ' <span class="dim">· ' + esc(storeName(j.store)) + '</span>' : "") + '</td><td>' + esc(j.salesperson || "—") + '</td><td class="r mono">' + ((j.products || []).length || "—") + '</td></tr>').join("") + '</tbody></table>'
@@ -2744,11 +2756,12 @@ function viewBoard(){
   const title = S.store === "*" ? "All stores" : storeName(S.store);
   const card = j => {
     const u = urgency(j, now), dueCls = u === "bad" ? "due-bad" : u === "warn" ? "due-warn" : "due-ok";
-    return '<button class="card u-' + u + (S.newIds.has(j.id) ? " new" : "") + '" data-action="open" data-id="' + esc(j.id) + '">' +
+    return '<button class="card u-' + u + (jobNoKeys(j) ? " nokeys" : "") + (S.newIds.has(j.id) ? " new" : "") + '" data-action="open" data-id="' + esc(j.id) + '">' +
       '<div class="card-top"><span class="stock">#' + esc(j.stock) + '</span>' +
       (S.store === "*" ? '<span class="store-tag">' + esc(storeName(j.store)) + '</span>' : "") +
       (j.rush ? '<span class="flag rush">Rush</span>' : "") + (j.waiting ? '<span class="flag wait">Customer waiting</span>' : "") + '</div>' +
       '<div class="veh">' + esc(vehicle(j)) + '</div>' + (j.color ? '<div class="vcolor">' + esc(j.color) + '</div>' : "") +
+      (jobNoKeys(j) ? '<div class="nk-line">NO KEYS · ' + esc(JOB_KEY_WHY[j.noKeys.why] || "Other") + (j.noKeys.name ? ' · ' + esc(j.noKeys.name) : "") + '</div>' : "") +
       '<dl class="card-stats"><div><dt>Salesperson</dt><dd>' + esc(j.salesperson || "—") + '</dd></div>' +
       (j.status === "ready" ? '<div><dt>Ready at ' + esc(fmtTime(j.readyAt)) + '</dt><dd class="' + (j.dueAt && j.readyAt > j.dueAt + MIN ? "due-bad" : "due-ok") + '">' + esc(dueText(j, now)) + '</dd></div>'
         : '<div><dt>Due ' + esc(fmtTime(j.dueAt)) + '</dt><dd class="' + dueCls + '">' + esc(dueText(j, now)) + '</dd></div>') +
@@ -3153,6 +3166,16 @@ function renderSheet(){
     '<label class="field"><span>Notes</span><textarea class="input" name="notes">' + esc(j.notes) + '</textarea></label>' +
     '<button class="btn primary" type="submit">Save changes</button></form></details>' : "";
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="del-job">' + (S.sheet.confirmDel ? "Tap again to remove for good" : "Remove from board") + '</button></div>' : "";
+  // Tapping a No keys car (shop / area manager): ask first if the keys are back.
+  if (jobNoKeys(j) && p.status && w && !S.sheet.keysSeen && S.sheet.focus !== "review"){
+    root.innerHTML = '<div class="backdrop" data-action="close-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">' +
+      '<div class="sheet-head"><div style="flex:1;min-width:0"><div class="muted">#' + esc(j.stock) + '  ·  ' + esc(storeName(j.store)) + '</div><h2 id="sheetTitle">' + esc(vehicle(j)) + '</h2></div><button class="x" data-action="close" aria-label="Close">×</button></div>' +
+      '<div class="sec">' + jobKeysBox(j) + '<h2 style="margin:16px 0 12px">Did you get the keys back?</h2>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><button class="btn primary" style="font-size:20px;padding:16px" data-action="j-keys-back" data-id="' + esc(j.id) + '">Yes</button>' +
+      '<button class="btn" style="font-size:20px;padding:16px" data-action="j-keys-no" data-id="' + esc(j.id) + '">No</button></div></div></div></div>';
+    setTimeout(() => root.querySelector('[data-action="j-keys-back"]')?.focus(), 30);
+    return;
+  }
   // Survey mode: only the rating, nothing else (no products, status, edit or remove).
   if (S.sheet.focus === "review"){
     const rv = reviewSection(j);
@@ -3171,7 +3194,7 @@ function renderSheet(){
       (!jobStopped(j) ? '<div><dt>On board</dt><dd>' + esc(fmtDur(jobOnBoard(j, now))) + '</dd></div>' : "") +
       (jobStopped(j) ? '<div><dt>Turn time</dt><dd>' + esc(fmtDur(jobTurn(j))) + '</dd></div>' : "") + '</dl>' +
       (j.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(j.notes) + '</p>' : "") + '</div>' +
-    statusSec + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
+    jobKeysSec(j, p, w) + statusSec + dpSlot("job", dpItem("job", j.id)) + reviewSection(j) + prodSec + editSec +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (j.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec + '</div></div>';
   const sh = root.querySelector(".sheet"); sh.scrollTop = keepScroll;
@@ -3184,6 +3207,7 @@ function addLog(j, a){ return (j.log || []).concat([{ t: Date.now(), by: S.me ||
 async function setStatus(j, to){
   if (j.status === to) return;
   const patch = { status: to, log: addLog(j, "Moved to " + STATUS[to]) };
+  if (j.noKeys && (to === "ready" || to === "delivered")){ Object.assign(patch, jobKeysPatch(j, Date.now())); patch.log = addLog(j, "Moved to " + STATUS[to] + " (No keys cleared, clock resumed first)"); }
   if (to === "working" && !j.startedAt) patch.startedAt = Date.now();
   if (to === "ready") patch.readyAt = Date.now();
   if (to === "delivered") patch.deliveredAt = Date.now();
@@ -3194,6 +3218,51 @@ async function setStatus(j, to){
   }
   try{ await api.update(j.id, patch); toast(vehicle(j) + " is now " + STATUS[to].toLowerCase()); if (to === "delivered") promptReview(j.id); }catch(e){}
 }
+
+// Ends a No keys pause: the time it sat is added to pausedMs and the due time moves out by the same amount.
+function jobKeysPatch(j, now){
+  const p = { noKeys: null };
+  if (jobNoKeys(j)){ const gap = Math.max(0, now - jobKeysAt(j, now)); p.pausedMs = (j.pausedMs || 0) + gap; if (j.dueAt) p.dueAt = j.dueAt + gap; }
+  return p;
+}
+async function jobSetKeys(j, noKeys){
+  if (!j || S.keysBusy || !perms(S.role).status || !S.canWrite) return false;
+  if (noKeys && (j.noKeys || !(j.status === "queued" || j.status === "working"))) return false;
+  const now = Date.now();
+  const patch = noKeys
+    ? { noKeys: Object.assign({ at: now, by: S.me || ROLES[S.role].label }, noKeys), log: addLog(j, "NO KEYS (" + JOB_KEY_WHY[noKeys.why] + ", " + noKeys.name + ") — clock paused") }
+    : Object.assign(jobKeysPatch(j, now), { log: addLog(j, "Keys back — clock resumed") });
+  S.keysBusy = true;
+  try{ await api.update(j.id, patch); toast(vehicle(j) + (noKeys ? ": no keys, clock paused" : ": keys back, clock running")); return true; }
+  catch(e){ return false; }
+  finally{ S.keysBusy = false; }
+}
+function jobKeysBox(j){
+  return '<div class="nk-box">NO KEYS · ' + esc(JOB_KEY_WHY[j.noKeys.why] || "Other") + ' · ' + esc(j.noKeys.name || "") + '<div class="muted" style="font-weight:500">Since ' + esc(fmtTime(j.noKeys.at)) + ' · clock paused</div></div>';
+}
+// Keys section in the delivery pop-up (same as used cars): dropdown to mark No keys (reason + name required), button for keys back.
+function jobKeysSec(j, p, w){
+  if (!(j.status === "queued" || j.status === "working")) return "";
+  if (!(p.status && w)) return j.noKeys ? '<div class="sec">' + jobKeysBox(j) + '</div>' : "";
+  if (j.noKeys) return '<div class="sec"><h3>Keys</h3><div style="margin-bottom:10px">' + jobKeysBox(j) + '</div><button class="btn primary" style="width:100%" data-action="j-keys-back" data-id="' + esc(j.id) + '">🔑 We have the keys back</button></div>';
+  return '<div class="sec"><h3>Keys</h3><form class="form" data-form="j-nokeys" data-id="' + esc(j.id) + '" novalidate autocomplete="off" style="gap:8px">' +
+    '<select class="input" name="why" data-action="j-keys-why"><option value="">🔑 Have keys</option><option value="service">No keys · Service</option><option value="sales">No keys · Sales</option><option value="other">No keys · Other</option></select>' +
+    '<div class="nk-more hidden"><input class="input" name="who" maxlength="40" placeholder="Name (required) — who has the keys" style="margin-bottom:8px"><div class="nk-err"></div>' +
+    '<button class="btn danger" type="submit" style="width:100%">Mark NO KEYS (pauses clock)</button></div></form></div>';
+}
+document.addEventListener("change", e => {
+  const sel = e.target; if (!sel.matches || !sel.matches('[data-action="j-keys-why"]')) return;
+  const more = sel.form && sel.form.querySelector(".nk-more"); if (!more) return;
+  more.classList.toggle("hidden", !sel.value); if (sel.value) setTimeout(() => sel.form.who.focus(), 30);
+});
+document.addEventListener("submit", async e => {
+  const f = e.target; if (!f.dataset || f.dataset.form !== "j-nokeys") return;
+  e.preventDefault();
+  const j = S.jobs.find(x => x.id === f.dataset.id), why = f.why.value, name = f.who.value.trim(), err = f.querySelector(".nk-err");
+  if (!why || !JOB_KEY_WHY[why]) return;
+  if (!name){ err.innerHTML = '<div class="err-msg" role="alert">Type a name first.</div>'; f.who.focus(); return; }
+  if (await jobSetKeys(j, { why, name }) && S.sheet){ S.sheet.rendered = false; S.sheet.keysSeen = true; renderSheet(); }
+});
 
 /* ---------- events ---------- */
 document.addEventListener("click", async e => {
@@ -3224,6 +3293,9 @@ document.addEventListener("click", async e => {
     case "vs-drill": vsDrill(t.dataset.k); break;
     case "vs-rank": LS.set("rankBy", t.dataset.p); render(true); break;
     case "open": openSheet(t.dataset.id, t.dataset.focus); break;
+    case "j-keys-no": if (S.sheet){ S.sheet.keysSeen = true; S.sheet.rendered = false; renderSheet(); } break;
+    case "j-keys-back": { const j = job(); const ask = S.sheet && !S.sheet.keysSeen;
+      if (await jobSetKeys(j, null)){ if (ask) closeSheet(); else if (S.sheet){ S.sheet.rendered = false; renderSheet(); } } break; }
     case "close": closeSheet(); break;
     case "advance": { const j = job(); const n = j && nextStep(j); if (n) await setStatus(j, n.to); break; }
     case "set-status": { const j = job(); if (j) await setStatus(j, t.dataset.s); break; }
