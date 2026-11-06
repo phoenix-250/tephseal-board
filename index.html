@@ -253,6 +253,13 @@ body.tv{ background:var(--shop-bg); }
 @keyframes nkPulse{ 50%{ box-shadow:0 0 0 6px rgba(255,77,77,.45); } }
 .job-row.u-nokeys{ background:#E00000; color:#fff; } .job-row.u-nokeys .bar{ background:#7a0000; } .job-row.u-nokeys *{ color:#fff !important; }
 .tm-t tr.u-nokeys td{ background:#E00000; color:#fff !important; } .tm-t tr.u-nokeys td *{ color:#fff !important; }
+/* Reclean for lot: purple, no timer */
+.u-item.u-rc{ background:#5B2D91 !important; color:#fff !important; border-left-color:#C9A7F5; box-shadow:0 0 0 3px #9B6BDB; }
+.u-item.u-rc .u-time, .u-item.u-rc .u-who, .u-item.u-rc .u-stock, .u-item.u-rc .u-veh{ color:#fff !important; font-weight:800; }
+.job-row.u-rc{ background:#5B2D91; color:#fff; } .job-row.u-rc .bar{ background:#C9A7F5; } .job-row.u-rc *{ color:#fff !important; }
+.u-c-rc{ color:#7A45C0; } .rc-box{ background:#5B2D91; color:#fff; border-radius:12px; padding:12px 14px; font-weight:700; }
+.rc-pick{ display:flex; align-items:center; gap:10px; padding:12px; border:2px solid #9B6BDB; border-radius:12px; font-weight:700; cursor:pointer; }
+.rc-pick input{ width:22px; height:22px; accent-color:#5B2D91; }
 .nk-box{ background:#E00000; color:#fff; border-radius:12px; padding:14px; font-weight:700; }
 .nk-box .muted{ color:#ffe0e0; }
 .card.nokeys{ background:#E00000 !important; color:#fff !important; box-shadow:0 0 0 3px #ff4d4d; animation:nkPulse 2s ease-in-out infinite; }
@@ -1022,7 +1029,9 @@ function usedOn(store){
 const usedPerm = r => ({ add: ["sales","shop","area"].includes(r), move: ["shop","area"].includes(r), del: ["sales","shop","area"].includes(r) });
 function usedTab(){ return uSafe(() => !!S.role && usedPerm(S.role).add && !!S.store && usedOn(S.store), false); }
 function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() && !t.includes("add") ? t.concat(["add"]) : t; }
-const usedKeep = u => u.stage !== "done" || (u.doneAt || 0) > Date.now() - USED_KEEP;
+const usedKeep = u => u.stage !== "done" || (u.reclean ? isToday(u.doneAt) : (u.doneAt || 0) > Date.now() - USED_KEEP);
+// Used cars that count toward numbers (reclean-for-lot cars never do)
+const usedReal = l => l.filter(u => !u.reclean);
 const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store === id) && usedKeep(u));
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
 const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN " + u.vin.slice(-8) : "");
@@ -1053,6 +1062,7 @@ function usedClock(u, now){
   const sd = ms => ms >= 2 * HOUR ? Math.round(ms / HOUR) + "h" : fmtDur(ms);
   let short = u.stage === "done" ? "Completed in " + sd(age) : age < USED_GOAL ? sd(USED_GOAL - age) + " left" : age < USED_MAX ? sd(USED_MAX - age) + " to 48h" : sd(age - USED_MAX) + " late";
   const nk = !!u.noKeys;
+  if (u.reclean){ return { lvl: "rc", txt: u.stage === "done" ? "Reclean for lot · completed" : "Reclean for lot · no timer", age, short: nk ? "RECLEAN · NO KEYS" : "RECLEAN", nk: false, rc: true }; }
   if (nk){ const why = "NO KEYS · " + (USED_KEY_WHY[u.noKeys.why] || "Other"); txt = why + " (" + (u.noKeys.name || "") + ") · clock paused at " + fmtDur(age); short = why + (u.noKeys.name ? " · " + u.noKeys.name : ""); }
   return { lvl, txt, age, short, nk };
 }
@@ -1101,6 +1111,12 @@ async function usedPurge(){
     U.lastPurge = Date.now();
     const { data: cand } = await db.from("used_units").select("id,store,data").neq("store", USED_SET).eq("data->>stage", "done").lt("created_at", new Date(Date.now() - USED_KEEP).toISOString()).limit(500);
     const old = (cand || []).filter(r => r.data && (r.data.doneAt || 0) < Date.now() - USED_KEEP).map(r => r.id).slice(0, 200);
+    // Reclean for lot: nothing is kept once the day it was completed is over
+    try{
+      const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+      const { data: rc } = await db.from("used_units").select("id,store,data").neq("store", USED_SET).eq("data->>reclean", "true").eq("data->>stage", "done").limit(500);
+      (rc || []).filter(r => r.data && (r.data.doneAt || 0) < t0.getTime()).forEach(r => { if (old.length < 300 && !old.includes(r.id)) old.push(r.id); });
+    }catch(e2){}
     if (!old.length) return;
     const { error } = await db.from("used_units").delete().in("id", old);
     if (!error) U.list = U.list.filter(u => !old.includes(u.id));
@@ -1298,7 +1314,7 @@ function usedTileLine(id){
   return uSafe(() => {
     if (!usedOn(id) || !U.loaded) return "";
     const l = usedFor(id);
-    const now = Date.now(), over = l.filter(u => u.stage !== "done" && usedClock(u, now).lvl !== "ok").length;
+    const now = Date.now(), over = usedReal(l).filter(u => u.stage !== "done" && usedClock(u, now).lvl !== "ok").length;
     return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> completed today' +
       (over ? ', <span class="bad">' + over + ' over 24h</span>' : "") + '</div>';
   }, "");
@@ -1379,12 +1395,12 @@ function usedModal(){
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="u-del" data-id="' + esc(u.id) + '">' + (U.modal.confirmDel ? "Tap again to remove for good" : "Remove from used cars") + '</button></div>' : "";
   root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
     '<div class="row" style="margin-top:6px"><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span>' + (u.color ? '<span class="muted">' + esc(u.color) + '</span>' : "") + '</div>' +
-    '<div class="sec"><p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Completed in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>' +
+    '<div class="sec">' + (u.reclean ? '<div class="rc-box" style="margin-bottom:10px">RECLEAN FOR LOT<div style="font-weight:500;opacity:.85">Touch-up only · no timer · not counted in any numbers</div></div>' : '<p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Completed in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>') +
       '<dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
       '<div><dt>Detailer</dt><dd>' + esc(u.detailer || "Not assigned") + '</dd></div>' +
       '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
       (u.stage !== "done" ? '<div><dt>In this stage</dt><dd>' + esc(fmtDur(now - (u.stageAt || u.createdAt))) + '</dd></div>' : "") +
-      (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div><div><dt>Total time</dt><dd>' + esc(fmtDur(usedTotal(u))) + '</dd></div>' : "") + '</dl>' +
+      (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div>' + (u.reclean ? "" : '<div><dt>Total time</dt><dd>' + esc(fmtDur(usedTotal(u))) + '</dd></div>') : "") + '</dl>' +
       (u.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(u.notes) + '</p>' : "") +
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
     ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
@@ -1423,7 +1439,7 @@ function usedFields(u, detStore, det, scanTop){
     '<input type="file" accept="image/*" capture="environment" id="uScanFile" class="hidden">' +
     '<div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
       '<label class="field"><span>Stock # <em>*</em></span><input class="input" name="stock" value="' + v("stock") + '" autocapitalize="characters" enterkeyhint="next" style="text-transform:uppercase" placeholder="U24519"></label>' +
-      '<label class="field"><span>VIN <em>*</em> <span class="muted" style="font-weight:400">last 8</span></span><input class="input" name="vin" value="' + v("vin") + '" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="17" enterkeyhint="next" style="text-transform:uppercase" placeholder="Last 8"></label></div>' +
+      '<label class="field"><span>VIN <em>*</em> <span class="muted" style="font-weight:400">last 8 or more</span></span><input class="input" name="vin" value="' + v("vin") + '" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="17" enterkeyhint="next" style="text-transform:uppercase" placeholder="Last 8+"></label></div>' +
     (scanTop ? "" : '<div id="uScanMsg" class="muted" style="font-size:14px;margin-top:-6px"></div>') +
     '<div class="field"><span>Vehicle</span><div style="display:grid;grid-template-columns:5.2em 1fr 1fr;gap:8px">' +
       '<input class="input" name="year" value="' + v("year") + '" inputmode="numeric" maxlength="4" placeholder="Year" aria-label="Year">' +
@@ -1436,7 +1452,20 @@ function usedFields(u, detStore, det, scanTop){
       USED_COLORS.map(c => '<button type="button" class="chip" data-action="u-color" data-c="' + c + '" aria-pressed="' + (col.toLowerCase() === c.toLowerCase()) + '">' + c + '</button>').join("") + '</div>' +
       '<input class="input" name="color" value="' + esc(col) + '" placeholder="Or type a color" autocapitalize="words" style="margin-top:6px"></div>' +
     (detStore !== null ? '<label class="field"><span>Detailer</span>' + usedDetailerSelect(detStore, det, 'name="detailer"') + '</label>' : "") +
-    '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" rows="2" placeholder="Anything the detailers should know">' + v("notes") + '</textarea></label>';
+    '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" rows="2" placeholder="Anything the detailers should know">' + v("notes") + '</textarea></label>' +
+    usedRecleanField(u);
+}
+// Reclean for lot: aged lot cars that just need a touch-up. Purple on the board, no timer, never counted, not kept.
+// Area managers are already signed in with the PIN; anyone else enters the area manager PIN to mark one.
+function usedRecleanField(u){
+  const on = !!u.reclean, needPin = S.role !== "area";
+  return '<div class="field"><label class="rc-pick"><input type="checkbox" name="reclean" value="1"' + (on ? " checked" : "") + '><span>Reclean for lot<br><span class="muted" style="font-weight:500;font-size:14px">Touch-up on an aged lot car · no timer · not counted</span></span></label>' +
+    (needPin ? '<input class="input' + " hidden" + '" name="rcpin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Manager PIN to mark reclean" style="margin-top:8px">' : "") + '</div>';
+}
+async function usedPinOk(v){
+  v = String(v || "").trim(); if (!v) return false;
+  if (S.secure && db){ const { data, error } = await db.rpc("ts_check_pin", { pin: v }); if (error) throw error; return data === true; }
+  return !!(S.config.masterPin && v === String(S.config.masterPin));
 }
 function usedMakeKnown(make){ if (!make) return ""; const m = String(make).toLowerCase(); return usedMakes().find(x => x.toLowerCase() === m) || ""; }
 function usedMakeOptions(cur){
@@ -1703,6 +1732,10 @@ document.addEventListener("change", e => {
   if (!form || !/^u-(add|edit)$/.test(form.dataset.form || "")) return;
   if (f.name === "make"){ usedSyncVeh(form, ""); if (f.value === "__new") form.makeNew.focus(); }
   if (f.name === "model"){ form.modelNew.classList.toggle("hidden", f.value !== "__add"); if (f.value === "__add") form.modelNew.focus(); }
+  if (f.name === "reclean" && form.rcpin){
+    const u = form.dataset.id && U.list.find(x => x.id === form.dataset.id), need = f.checked && !(u && u.reclean);
+    form.rcpin.classList.toggle("hidden", !need); if (need) form.rcpin.focus(); else form.rcpin.value = "";
+  }
 });
 // Typing or pasting a full 17-character VIN fills year/make/model too (same lookup the photo scan uses).
 let vinTyped = "";
@@ -1710,7 +1743,9 @@ document.addEventListener("input", async e => {
   const f = e.target, form = f.form;
   if (!form || !/^u-(add|edit)$/.test(form.dataset.form || "")) return;
   if (f.name === "color") form.querySelectorAll('[data-action="u-color"]').forEach(b => b.setAttribute("aria-pressed", String(b.dataset.c.toLowerCase() === f.value.trim().toLowerCase())));
+  if (f.name === "stock"){ f.dataset.auto = ""; return; }
   if (f.name !== "vin") return;
+  usedAutoStock(form);
   const msg = form.querySelector("#uScanMsg"), vin = cleanVin(f.value);
   if (!vin || vin === vinTyped) return;
   vinTyped = vin;
@@ -1730,18 +1765,25 @@ document.addEventListener("keydown", e => {
   const i = fields.indexOf(f);
   if (i >= 0 && i < fields.length - 1){ e.preventDefault(); fields[i + 1].focus(); }
 });
+// Stock # defaults to the last 4 of the VIN. Typing your own stock # stops that; clearing it turns it back on.
+function usedAutoStock(form){
+  const st = form.stock; if (!st) return;
+  if (st.value.trim() && st.dataset.auto !== "1") return;
+  const v = String(form.vin.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  st.value = v.length >= 4 ? v.slice(-4) : ""; st.dataset.auto = st.value ? "1" : "";
+}
 // fromText: read from the printed VIN, not a barcode, so ask for a quick look at it.
 // d: the NHTSA lookup if the caller already did it.
 async function usedGotVin(form, vin, fromText, d){
   const msg = form.querySelector("#uScanMsg");
-  form.vin.value = vin; vinTyped = vin;
+  form.vin.value = vin; vinTyped = vin; usedAutoStock(form);
   if (msg) msg.textContent = "VIN " + vin + " found. Looking up the vehicle…";
   if (d === undefined) d = await lookupVin(vin);
   if (!form.isConnected) return;
   const chk = fromText ? " Read from the printed VIN, so make sure it matches the car." : "";
   if (d && (d.make || d.model)){
     usedSetVeh(form, d);
-    if (msg) msg.textContent = "Filled in from VIN " + vin + "." + (chk || " Check it, then add the stock number.");
+    if (msg) msg.textContent = "Filled in from VIN " + vin + "." + (chk || " Check it and the stock number.");
   } else if (msg) msg.textContent = "VIN " + vin + " found. Couldn’t look up the vehicle, so type year, make and model." + chk;
   if (!form.stock.value.trim()) setTimeout(() => form.stock.focus(), 50);
 }
@@ -2029,15 +2071,22 @@ document.addEventListener("submit", async e => {
       f.querySelectorAll(".err").forEach(n => n.classList.remove("err"));
       const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year");
       if (!stock){ errs.push("Stock number can’t be blank."); f.stock.classList.add("err"); }
-      if (vin && vin.length !== 8 && vin.length !== 17){ errs.push("Enter the last 8 of the VIN (or the full 17, or leave it blank)."); f.vin.classList.add("err"); }
+      if (vin && (vin.length < 8 || vin.length > 17)){ errs.push("Enter at least the last 8 of the VIN (up to all 17), or leave it blank."); f.vin.classList.add("err"); }
+      const rc = !!fd.get("reclean");
+      if (rc && !u.reclean && S.role !== "area"){
+        let ok = false; try{ ok = await usedPinOk(g("rcpin")); }catch(pe){ errs.push("Couldn’t check the PIN. Check your connection."); }
+        if (!ok && !errs.length){ errs.push("Enter the manager PIN to mark this reclean for lot."); if (f.rcpin){ f.rcpin.classList.remove("hidden"); f.rcpin.classList.add("err"); f.rcpin.value = ""; } }
+      }
       if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
       if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
       const vh = usedReadVeh(fd);
       const patch = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes") };
       if (vh.added) usedRememberModel(vh.make, vh.model);
       const changed = Object.keys(patch).filter(k => String(u[k] || "") !== patch[k]);
-      if (!changed.length){ U.modal = { kind: "view", id: u.id }; usedModal(); return; }
-      patch.log = usedLog(u, "Details edited");
+      const rcChg = rc !== !!u.reclean;
+      if (!changed.length && !rcChg){ U.modal = { kind: "view", id: u.id }; usedModal(); return; }
+      if (rcChg) patch.reclean = rc;
+      patch.log = usedLog(u, rcChg ? (rc ? "Marked reclean for lot" : "Changed from reclean to used car") + (changed.length ? ", details edited" : "") : "Details edited");
       const btn = f.querySelector("#uSubmit"); btn.disabled = true; btn.textContent = "Saving…"; U.busy = true;
       try{ await usedApi.update(u, patch); toast("Changes saved"); U.modal = { kind: "view", id: u.id }; usedModal(); usedRerender(); }
       catch(e2){ console.warn("Used cars:", e2); btn.disabled = false; btn.textContent = "Save"; toast("That didn't save. Check your connection and try again.", true); }
@@ -2063,7 +2112,12 @@ document.addEventListener("submit", async e => {
     const errs = [], stock = g("stock").toUpperCase(), vin = g("vin").toUpperCase().replace(/\s/g, ""), year = g("year"), store = g("store");
     if (!stock){ errs.push("Enter the stock number."); f.stock.classList.add("err"); }
     if (!vin){ errs.push("Enter at least the last 8 of the VIN, or scan it."); f.vin.classList.add("err"); }
-    else if (vin.length !== 8 && vin.length !== 17){ errs.push("VIN should be the last 8 characters (or all 17)."); f.vin.classList.add("err"); }
+    else if (vin.length < 8 || vin.length > 17){ errs.push("VIN needs at least the last 8 characters (up to all 17)."); f.vin.classList.add("err"); }
+    const rc = !!fd.get("reclean");
+    if (rc && S.role !== "area" && !errs.length){
+      let ok = false; try{ ok = await usedPinOk(g("rcpin")); }catch(pe){ errs.push("Couldn’t check the PIN. Check your connection."); }
+      if (!ok && !errs.length){ errs.push("Enter the manager PIN to mark this reclean for lot."); if (f.rcpin){ f.rcpin.classList.remove("hidden"); f.rcpin.classList.add("err"); f.rcpin.value = ""; } }
+    }
     if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
     if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
     if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
@@ -2079,14 +2133,15 @@ document.addEventListener("submit", async e => {
     if (vh.added) usedRememberModel(vh.make, vh.model);
     const d = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes"), detailer: (usedPerm(S.role).move && g("detailer")) || null,
       stage: "detail", createdAt: now, updatedAt: now, stageAt: now, doneAt: null, addedBy: by, addedRole: S.role,
-      log: [{ t: now, by, a: "Added to used cars" }] };
+      log: [{ t: now, by, a: rc ? "Added as reclean for lot" : "Added to used cars" }] };
+    if (rc) d.reclean = true;
     const again = !!(e.submitter && e.submitter.dataset.next);
     f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = true);
     try{
       await usedApi.add(store, d);
       if (f.dataset.inline){ U.inl = { last: stock, detailer: d.detailer || "", store }; usedInlineRefresh(true); usedRerender(); U.busy = false; return; }
       if (again){ U.modal = { kind: "add", last: stock, detailer: d.detailer || "" }; usedModal(); setTimeout(() => usedRoot().querySelector(".sheet")?.scrollTo(0, 0), 0); }
-      else { usedClose(); toast("Added. It’s on the shop board under In detail."); }
+      else { usedClose(); toast(rc ? "Added as reclean for lot. It’s on the shop board in purple." : "Added. It’s on the shop board under In detail."); }
       usedRerender();
     }
     catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = f.dataset.inline ? "Send to Teph Seal" : "Add"; toast("That didn't save. Check your connection and try again.", true); }
@@ -2641,7 +2696,7 @@ function viewStore(){
   const oldest = all.reduce((m, j) => Math.min(m, j.createdAt || now), now), haveDays = Math.max(1, Math.round((now - oldest) / DAY));
   const finToday = all.filter(j => j.readyAt && j.dueAt && j.readyAt >= T0);
   const useOn = !!v.used && uSafe(() => (multi ? stores().some(x => usedOn(x.id)) : usedOn(S.store)) && U.loaded, false);
-  const ul = useOn ? uSafe(() => usedFor(S.store), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const ul = useOn ? uSafe(() => usedReal(usedFor(S.store)), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const uDone30 = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - 30 * DAY).sort((a, b) => b.doneAt - a.doneAt), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
   const uAvg = uDone30.length ? uDone30.reduce((a, u) => a + usedTotal(u), 0) / uDone30.length : null;
   const UW = [30, 60, 90].map(d => { const l = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - d * DAY).sort((a, b) => b.doneAt - a.doneAt);

@@ -156,6 +156,7 @@ begin
     from used_units u
     where u.store = c.store
       and coalesce(u.data->>'stage', '') <> 'done'
+      and coalesce(u.data->>'reclean', '') <> 'true'   -- reclean for lot: no timer, no alerts
       and coalesce(u.data->>'createdAt', '') ~ '^\d+$'
       and (u.data->>'createdAt')::bigint + used_max < now_ms
       and (u.data->>'createdAt')::bigint + used_max > now_ms - win_ms
