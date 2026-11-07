@@ -1067,6 +1067,11 @@ function usedClock(u, now){
   return { lvl, txt, age, short, nk };
 }
 const usedDetailers = store => (U.detailers[store] || []).slice().sort((a, b) => a.localeCompare(b));
+// Up to two detailers per used car. "detailer" keeps the text everything already shows ("Ana & Ben") so the TV, emails and
+// exports work unchanged; "detailers" holds the two names. One detailer saves exactly like before (no "detailers" field).
+// If an older screen changed "detailer" without updating "detailers", "detailer" wins.
+const usedDets = u => { const d = u && u.detailer; if (!d) return []; const a = u.detailers; return Array.isArray(a) && a.length === 2 && a.join(" & ") === d ? a.slice() : [d]; };
+const usedDetPatch = names => { const n = [...new Set((names || []).map(x => String(x || "").trim()).filter(Boolean))].slice(0, 2); return { detailer: n.length ? n.join(" & ") : null, detailers: n.length === 2 ? n : null }; };
 function usedLog(u, a){ return (u.log || []).concat([{ t: Date.now(), by: S.me || ROLES[S.role].label, a }]).slice(-30); }
 
 /* --- data --- */
@@ -1403,8 +1408,9 @@ function usedModal(){
       (u.doneAt ? '<div><dt>Done</dt><dd>' + esc(fmtTime(u.doneAt)) + '</dd></div>' + (u.reclean ? "" : '<div><dt>Total time</dt><dd>' + esc(fmtDur(usedTotal(u))) + '</dd></div>') : "") + '</dl>' +
       (u.notes ? '<p style="margin:12px 0 0"><b>Notes:</b> ' + esc(u.notes) + '</p>' : "") +
       ((p.add && w) ? '<button class="btn" data-action="u-edit" data-id="' + esc(u.id) + '" style="margin-top:12px">✎ Edit details</button>' : "") + '</div>' +
-    ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, u.detailer, 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
-      (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div></div>' : "") +
+    ((p.move && w) ? '<div class="sec"><h3>Detailer</h3><div class="row" style="flex-wrap:nowrap">' + usedDetailerSelect(u.store, usedDets(u)[0], 'data-action="u-assign" data-id="' + esc(u.id) + '" style="flex:1"') +
+      (u.store === S.store || S.role === "area" ? '<button class="btn" data-action="u-team" data-store="' + esc(u.store) + '">Edit list</button>' : "") + '</div>' +
+      (u.detailer ? '<div class="row" style="flex-wrap:nowrap;margin-top:8px">' + usedDetailerSelect(u.store, usedDets(u)[1], 'data-action="u-assign" data-id="' + esc(u.id) + '" aria-label="Second detailer" style="flex:1"', "+ Second detailer (optional)") + '</div>' : "") + '</div>' : "") +
     usedKeysSec(u, p, w) + stageSec + tvCloseBtn("u-close") + dpSlot("used", dpItem("used", u.id)) +
     '<div class="sec"><h3>Activity</h3><ul class="log">' + (u.log || []).slice().reverse().slice(0, 12).map(l => '<li><b>' + esc(l.a) + '</b> by ' + esc(l.by) + ', ' + esc(fmtTime(l.t)) + '</li>').join("") + '</ul></div>' +
     delSec);
@@ -1451,7 +1457,8 @@ function usedFields(u, detStore, det, scanTop){
     '<div class="field"><span>Color</span><div class="chips" role="group" aria-label="Color">' +
       USED_COLORS.map(c => '<button type="button" class="chip" data-action="u-color" data-c="' + c + '" aria-pressed="' + (col.toLowerCase() === c.toLowerCase()) + '">' + c + '</button>').join("") + '</div>' +
       '<input class="input" name="color" value="' + esc(col) + '" placeholder="Or type a color" autocapitalize="words" style="margin-top:6px"></div>' +
-    (detStore !== null ? '<label class="field"><span>Detailer</span>' + usedDetailerSelect(detStore, det, 'name="detailer"') + '</label>' : "") +
+    (detStore !== null ? (dl => '<label class="field"><span>Detailer</span>' + usedDetailerSelect(detStore, dl[0], 'name="detailer"') + '</label>' +
+      (usedDetailers(detStore).length > 1 ? '<label class="field"><span>Second detailer <span class="muted" style="font-weight:400">optional</span></span>' + usedDetailerSelect(detStore, dl[1], 'name="detailer2"', "None") + '</label>' : ""))(Array.isArray(det) ? det : (det ? [det] : [])) : "") +
     '<label class="field"><span>Notes for the shop</span><textarea class="input" name="notes" rows="2" placeholder="Anything the detailers should know">' + v("notes") + '</textarea></label>' +
     usedRecleanField(u);
 }
@@ -1503,10 +1510,10 @@ function usedReadVeh(fd){
   const model = g("model") === "__add" ? g("modelNew") : g("model");
   return { make, model, added: g("make") === "__new" || g("model") === "__add" };
 }
-function usedDetailerSelect(store, cur, attrs){
+function usedDetailerSelect(store, cur, attrs, emptyLbl){
   const names = store ? usedDetailers(store) : [];
   const opts = names.concat(cur && !names.includes(cur) ? [cur] : []);
-  return '<select class="input" ' + attrs + '><option value="">' + (names.length ? "Not assigned" : "No detailers yet. Add them under Detailers") + '</option>' +
+  return '<select class="input" ' + attrs + '><option value="">' + (names.length ? (emptyLbl || "Not assigned") : "No detailers yet. Add them under Detailers") + '</option>' +
     opts.map(n => '<option' + (n === cur ? " selected" : "") + '>' + esc(n) + '</option>').join("") + '</select>';
 }
 /* --- VIN photo: read the door-jamb barcode, then look up year/make/model (NHTSA, free) --- */
@@ -1972,9 +1979,10 @@ document.addEventListener("change", async e => {
 document.addEventListener("change", async e => {
   const t = e.target; if (!t.dataset || t.dataset.action !== "u-assign") return;
   const u = U.list.find(x => x.id === t.dataset.id); if (!u || !usedPerm(S.role).move || U.busy) return;
-  const name = t.value || null; if ((u.detailer || null) === name) return;
+  const box = t.closest(".sec") || t.parentNode, sels = [...box.querySelectorAll('select[data-action="u-assign"]')];
+  const dp = usedDetPatch(sels.map(s => s.value)), name = dp.detailer; if ((u.detailer || null) === name){ if (U.modal) usedModal(); return; }
   U.busy = true;
-  try{ await usedApi.update(u, { detailer: name, log: usedLog(u, name ? "Assigned to " + name : "Detailer removed") }); toast(name ? usedVeh(u) + " assigned to " + name : "Detailer removed"); usedRerender(); }
+  try{ await usedApi.update(u, Object.assign(dp, { log: usedLog(u, name ? "Assigned to " + name : "Detailer removed") })); toast(name ? usedVeh(u) + " assigned to " + name : "Detailer removed"); usedRerender(); }
   catch(err){ toast("That didn't save. Check your connection and try again.", true); }
   U.busy = false; if (U.modal) usedModal();
 });
@@ -2131,16 +2139,17 @@ document.addEventListener("submit", async e => {
     const now = Date.now(), by = S.me || ROLES[S.role].label;
     const vh = usedReadVeh(fd);
     if (vh.added) usedRememberModel(vh.make, vh.model);
-    const d = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes"), detailer: (usedPerm(S.role).move && g("detailer")) || null,
+    const d = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes"), detailer: null,
       stage: "detail", createdAt: now, updatedAt: now, stageAt: now, doneAt: null, addedBy: by, addedRole: S.role,
       log: [{ t: now, by, a: rc ? "Added as reclean for lot" : "Added to used cars" }] };
     if (rc) d.reclean = true;
+    if (usedPerm(S.role).move){ const dp = usedDetPatch([g("detailer"), g("detailer2")]); d.detailer = dp.detailer; if (dp.detailers) d.detailers = dp.detailers; }
     const again = !!(e.submitter && e.submitter.dataset.next);
     f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = true);
     try{
       await usedApi.add(store, d);
-      if (f.dataset.inline){ U.inl = { last: stock, detailer: d.detailer || "", store }; usedInlineRefresh(true); usedRerender(); U.busy = false; return; }
-      if (again){ U.modal = { kind: "add", last: stock, detailer: d.detailer || "" }; usedModal(); setTimeout(() => usedRoot().querySelector(".sheet")?.scrollTo(0, 0), 0); }
+      if (f.dataset.inline){ U.inl = { last: stock, detailer: usedDets(d), store }; usedInlineRefresh(true); usedRerender(); U.busy = false; return; }
+      if (again){ U.modal = { kind: "add", last: stock, detailer: usedDets(d) }; usedModal(); setTimeout(() => usedRoot().querySelector(".sheet")?.scrollTo(0, 0), 0); }
       else { usedClose(); toast(rc ? "Added as reclean for lot. It’s on the shop board in purple." : "Added. It’s on the shop board under In detail."); }
       usedRerender();
     }
