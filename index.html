@@ -1463,9 +1463,9 @@ function usedFields(u, detStore, det, scanTop){
     usedRecleanField(u);
 }
 // Reclean for lot: aged lot cars that just need a touch-up. Purple on the board, no timer, never counted, not kept.
-// Area managers are already signed in with the PIN; anyone else enters the area manager PIN to mark one.
+// Anyone who can add or edit used cars can mark one (no PIN).
 function usedRecleanField(u){
-  const on = !!u.reclean, needPin = S.role !== "area";
+  const on = !!u.reclean, needPin = false;
   return '<div class="field"><label class="rc-pick"><input type="checkbox" name="reclean" value="1"' + (on ? " checked" : "") + '><span>Reclean for lot<br><span class="muted" style="font-weight:500;font-size:14px">Touch-up on an aged lot car · no timer · not counted</span></span></label>' +
     (needPin ? '<input class="input' + " hidden" + '" name="rcpin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Manager PIN to mark reclean" style="margin-top:8px">' : "") + '</div>';
 }
@@ -2081,10 +2081,6 @@ document.addEventListener("submit", async e => {
       if (!stock){ errs.push("Stock number can’t be blank."); f.stock.classList.add("err"); }
       if (vin && (vin.length < 8 || vin.length > 17)){ errs.push("Enter at least the last 8 of the VIN (up to all 17), or leave it blank."); f.vin.classList.add("err"); }
       const rc = !!fd.get("reclean");
-      if (rc && !u.reclean && S.role !== "area"){
-        let ok = false; try{ ok = await usedPinOk(g("rcpin")); }catch(pe){ errs.push("Couldn’t check the PIN. Check your connection."); }
-        if (!ok && !errs.length){ errs.push("Enter the manager PIN to mark this reclean for lot."); if (f.rcpin){ f.rcpin.classList.remove("hidden"); f.rcpin.classList.add("err"); f.rcpin.value = ""; } }
-      }
       if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
       if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
       const vh = usedReadVeh(fd);
@@ -2122,10 +2118,6 @@ document.addEventListener("submit", async e => {
     if (!vin){ errs.push("Enter at least the last 8 of the VIN, or scan it."); f.vin.classList.add("err"); }
     else if (vin.length < 8 || vin.length > 17){ errs.push("VIN needs at least the last 8 characters (up to all 17)."); f.vin.classList.add("err"); }
     const rc = !!fd.get("reclean");
-    if (rc && S.role !== "area" && !errs.length){
-      let ok = false; try{ ok = await usedPinOk(g("rcpin")); }catch(pe){ errs.push("Couldn’t check the PIN. Check your connection."); }
-      if (!ok && !errs.length){ errs.push("Enter the manager PIN to mark this reclean for lot."); if (f.rcpin){ f.rcpin.classList.remove("hidden"); f.rcpin.classList.add("err"); f.rcpin.value = ""; } }
-    }
     if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
     if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
     if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
