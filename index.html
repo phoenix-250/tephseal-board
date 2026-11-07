@@ -3051,7 +3051,8 @@ document.addEventListener("click", async e => {
    OFF, not set up, or any error = nothing shows; board works exactly as before.
    Own table only (sql/damage-photos.sql). Never writes to jobs, used cars or config.
    ============================================================ */
-const DP = { flags: {}, flagOk: false, counts: {}, list: [], img: {}, busy: false, saving: false, view: null, running: false, sig: "", setupOk: true };
+const DP = { flags: {}, flagOk: false, counts: {}, list: [], img: {}, busy: false, saving: false, view: null, running: false, sig: "", setupOk: true, pub: false };
+// pub = everyone at the store can view (needs sql/damage-photos-everyone.sql). Until that's run, phones fall back to counts only.
 function dpSafe(fn, d){ try{ return fn(); }catch(e){ console.warn("Damage photos:", e); return d === undefined ? "" : d; } }
 function dpOn(store){ return DP.flagOk && (store === "*" ? stores().some(s => DP.flags[s.id] === true) : DP.flags[store] === true); }
 function dpCanAdd(){ return S.canWrite && (S.role === "shop" || S.role === "area"); }
@@ -3075,6 +3076,16 @@ async function dpLoad(){
       DP.list = (data || []).map(r => Object.assign({}, r, { t: new Date(r.created_at).getTime() }));
       const c = {}; DP.list.forEach(r => { c[r.item_id] = (c[r.item_id] || 0) + 1; }); DP.counts = c;
     } else if (S.store && S.store !== "*" && dpOn(S.store)){
+      try{
+        const { data: pl, error: pe } = await db.rpc("ts_damage_store_list", { st: S.store, since: new Date(Date.now() - 95 * DAY).toISOString() });
+        if (!pe){
+          DP.setupOk = true; DP.pub = true;
+          DP.list = (pl || []).map(r => Object.assign({}, r, { t: new Date(r.created_at).getTime() }));
+          const c = {}; DP.list.forEach(r => { c[r.item_id] = (c[r.item_id] || 0) + 1; }); DP.counts = c;
+          return;
+        }
+      }catch(pe2){}
+      DP.pub = false;
       const { data, error } = await db.rpc("ts_damage_counts", { st: S.store });
       if (error){ DP.setupOk = !/ts_damage_counts|schema cache/i.test(error.message || ""); return; }
       DP.setupOk = true; DP.counts = data || {};
@@ -3145,18 +3156,18 @@ async function dpUpload(it, files, note){
   DP.busy = false;
   if (ok) toast(ok + " damage photo" + (ok === 1 ? "" : "s") + " saved" + (bad ? ", " + bad + " didn’t upload" : ""), !!bad);
   else toast("Photo didn’t upload. Check the connection and try again.", true);
-  if (S.role === "area") await dpLoad();
+  if (S.role === "area" || DP.pub) await dpLoad();
   dpRedraw(true);
 }
 // Section inside the delivery sheet and the used-car pop-up.
 function dpSection(kind, it){
   return dpSafe(() => {
     if (!it || !dpOn(it.store) || !DP.setupOk) return "";
-    const isArea = S.role === "area", add = dpCanAdd();
-    if (!isArea && !add) return "";
+    const isArea = S.role === "area", add = dpCanAdd(), see = isArea || DP.pub;
+    if (!see && !add) return "";
     const n = DP.counts[it.id] || 0;
     let h = '<div class="sec" id="dpSec-' + esc(it.id) + '"><h3>Damage photos</h3>';
-    if (isArea){
+    if (see){
       const mine = DP.list.filter(r => r.item_id === it.id);
       h += mine.length ? '<div class="dp-grid">' + mine.map(r => '<button class="dp-th" data-action="dp-open" data-item="' + esc(it.id) + '" data-pid="' + esc(r.id) + '" aria-label="Open photo">' + (DP.img[r.id] ? '<img alt="" src="' + DP.img[r.id] + '">' : '<span class="muted">' + (DP.img["!" + r.id] ? "Couldn’t load" : "Loading…") + '</span>') + '</button>').join("") + '</div>' : '<p class="muted" style="margin:0 0 10px">No damage photos.</p>';
       if (mine.some(r => !DP.img[r.id] && !DP.img["!" + r.id])) setTimeout(() => dpFetchImgs(mine.map(r => r.id)), 0);
@@ -3171,10 +3182,11 @@ function dpSection(kind, it){
 function dpSlot(kind, it){ return dpSection(kind, it) || (it ? '<span id="dpSec-' + esc(it.id) + '"></span>' : ""); }
 async function dpFetchImgs(ids){
   const need = ids.filter(id => !DP.img[id] && !DP.img["~" + id] && !DP.img["!" + id]);
-  if (!need.length || !db || !S.amTok) return;
+  const area = S.role === "area";
+  if (!need.length || !db || (area ? !S.amTok : !(DP.pub && S.store && S.store !== "*"))) return;
   need.forEach(id => { DP.img["~" + id] = 1; });
   await Promise.all(need.map(async id => {
-    try{ const { data, error } = await secureRpc("ts_damage_img", { tok: S.amTok, pid: id }); if (!error && data) DP.img[id] = data; else DP.img["!" + id] = 1; }catch(e){ DP.img["!" + id] = 1; }
+    try{ const { data, error } = area ? await secureRpc("ts_damage_img", { tok: S.amTok, pid: id }) : await db.rpc("ts_damage_store_img", { st: S.store, pid: id }); if (!error && data) DP.img[id] = data; else DP.img["!" + id] = 1; }catch(e){ DP.img["!" + id] = 1; }
     delete DP.img["~" + id];
   }));
   dpRedraw(true); if (DP.view) dpViewer();
@@ -3207,14 +3219,14 @@ function dpViewer(){
       '<div class="sec" style="border-top:0">' + (DP.img[r.id] ? '<img alt="Damage photo" src="' + DP.img[r.id] + '" style="width:100%;border-radius:10px;display:block">' : '<p class="muted">Loading photo…</p>') +
       '<p style="margin:10px 0 0">' + (r.note ? '<b>' + esc(r.note) + '</b><br>' : "") + '<span class="muted">' + esc(fmtTime(r.t)) + (r.taken_by ? ' · ' + esc(r.taken_by) : "") + ' · ' + (i + 1) + ' of ' + list.length + '</span></p>' +
       '<div class="row" style="margin-top:12px">' + (list.length > 1 ? '<button class="btn" data-action="dp-step" data-d="-1">‹ Prev</button><button class="btn" data-action="dp-step" data-d="1">Next ›</button>' : "") +
-      '<span class="spacer"></span><button class="btn danger" data-action="dp-del">' + (DP.view.confirmDel ? "Tap again to delete" : "Delete photo") + '</button></div></div></div></div>';
+      '<span class="spacer"></span>' + (S.role === "area" ? '<button class="btn danger" data-action="dp-del">' + (DP.view.confirmDel ? "Tap again to delete" : "Delete photo") + '</button>' : "") + '</div></div></div></div>';
   });
 }
 // Area manager switch panel (Setup).
 function dpSwitchPanel(){
   return dpSafe(() => {
     if (S.role !== "area") return "";
-    let h = '<div class="panel"><h3 style="font-size:22px">Damage photos</h3><p class="muted">Lets detailers snap photos of damage on a delivery or used car. Only area managers can see the photos (on the All stores page and in each car). Photos are deleted after 90 days. Off means that store’s board works exactly like today.</p>';
+    let h = '<div class="panel"><h3 style="font-size:22px">Damage photos</h3><p class="muted">Lets detailers snap photos of damage on a delivery or used car. Everyone at the store can see the photos in each car (once sql/damage-photos-everyone.sql is run); only area managers can delete them. Photos are deleted after 90 days. Off means that store’s board works exactly like today.</p>';
     if (!DP.flagOk) return h + '<div class="warn-box">The switches aren’t reachable right now. Damage photos stay off until they are.</div></div>';
     if (!DP.setupOk) h += '<div class="warn-box" style="margin-bottom:10px">Run <b>sql/damage-photos.sql</b> in Supabase before turning this on.</div>';
     const dis = DP.saving ? " disabled" : "";
@@ -3239,13 +3251,14 @@ document.addEventListener("click", async e => {
       inp.onchange = () => { const fs = [...(inp.files || [])].slice(0, 10); inp.remove(); dpUpload(it, fs, note); };
       document.body.appendChild(inp); inp.click(); return;
     }
-    if (a === "dp-open"){ if (S.role !== "area") return; DP.view = { item: t.dataset.item, pid: t.dataset.pid || null }; dpViewer(); return; }
+    if (a === "dp-open"){ if (S.role !== "area" && !DP.pub) return; DP.view = { item: t.dataset.item, pid: t.dataset.pid || null }; dpViewer(); return; }
     if (a === "dp-close" || a === "dp-close-bg"){ DP.view = null; dpViewer(); return; }
     if (a === "dp-step"){
       const list = DP.list.filter(r => r.item_id === DP.view.item), i = list.findIndex(r => r.id === DP.view.pid);
       DP.view = { item: DP.view.item, pid: list[(i + Number(t.dataset.d) + list.length) % list.length].id }; dpViewer(); return;
     }
     if (a === "dp-del"){
+      if (S.role !== "area") return;
       if (!DP.view.confirmDel){ DP.view.confirmDel = true; dpViewer(); return; }
       const pid = DP.view.pid; t.disabled = true;
       const { error } = await secureRpc("ts_damage_del", { tok: S.amTok, pid }); if (error) throw error;
