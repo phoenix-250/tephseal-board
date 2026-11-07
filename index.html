@@ -260,6 +260,15 @@ body.tv{ background:var(--shop-bg); }
 .u-c-rc{ color:#7A45C0; } .rc-box{ background:#5B2D91; color:#fff; border-radius:12px; padding:12px 14px; font-weight:700; }
 .rc-pick{ display:flex; align-items:center; gap:10px; padding:12px; border:2px solid #9B6BDB; border-radius:12px; font-weight:700; cursor:pointer; }
 .rc-pick input{ width:22px; height:22px; accent-color:#5B2D91; }
+/* Retired loaner: orange, keeps the normal 24h/48h timer */
+.u-item.u-ln:not(.u-nokeys):not(.u-rc){ background:#3D2408; box-shadow:0 0 0 3px #FF8A00; }
+.u-item.u-ln.u-bad:not(.u-nokeys):not(.u-rc){ box-shadow:inset 0 0 0 2px var(--shop-bad), 0 0 0 3px #FF8A00; }
+.u-ln-tag{ flex:none; background:#FF8A00; color:#1a0d00; font-family:var(--cond); font-weight:800; font-size:.8em; letter-spacing:.04em; padding:1px 7px; border-radius:6px; }
+.job-row.u-ln:not(.u-nokeys){ box-shadow:inset 0 0 0 2px #FF8A00; } .ln-pill{ background:#FF8A00; color:#1a0d00; }
+.ln-box{ background:#FF8A00; color:#1a0d00; border-radius:12px; padding:12px 14px; font-weight:800; }
+.ln-pick{ display:flex; align-items:center; gap:10px; padding:12px; border:2px solid #FF8A00; border-radius:12px; font-weight:700; cursor:pointer; margin-top:8px; }
+.ln-pick input{ width:22px; height:22px; accent-color:#FF8A00; }
+.tm-t tr.u-ln:not(.u-nokeys) td:first-child{ box-shadow:inset 4px 0 0 #FF8A00; }
 .nk-box{ background:#E00000; color:#fff; border-radius:12px; padding:14px; font-weight:700; }
 .nk-box .muted{ color:#ffe0e0; }
 .card.nokeys{ background:#E00000 !important; color:#fff !important; box-shadow:0 0 0 3px #ff4d4d; animation:nkPulse 2s ease-in-out infinite; }
@@ -1018,7 +1027,7 @@ const BARCODE_LIB = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/inde
 const OCR_LIB = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js";   // reads printed VIN text when there's no barcode
 const USED_NEXT = { detail:{ to:"progress", label:"Start" }, progress:{ to:"done", label:"Detail & photos done" } };
 const USED_KEEP = 90 * DAY;
-const U = { list: [], detailers: {}, loaded: false, flags: {}, flagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
+const U = { list: [], detailers: {}, loaded: false, flags: {}, flagOk: false, lflags: {}, lflagOk: false, everOk: false, saving: false, busy: false, filter: "open", modal: null, sig: null, wasOn: false, chan: null, lastPurge: 0, running: false };
 const memUsed = new Map();
 function uSafe(fn, d){ try{ const v = fn(); return v == null ? d : v; }catch(e){ console.warn("Used cars:", e); return d; } }
 function usedOn(store){
@@ -1026,12 +1035,21 @@ function usedOn(store){
   if (store === "*") return stores().some(s => U.flags[s.id] === true);
   return U.flags[store] === true;
 }
+// Retired loaners: switch per store (feature_flags 'loaner:<storeId>'), only where used cars are on.
+// Off, missing or unreachable = no loaner option, board works exactly like today.
+function loanerOn(store){
+  if (!U.lflagOk || !usedOn(store)) return false;
+  if (store === "*") return stores().some(s => U.lflags[s.id] === true && usedOn(s.id));
+  return U.lflags[store] === true;
+}
+const isLoaner = u => !!(u && u.loaner && !u.reclean);
 const usedPerm = r => ({ add: ["sales","shop","area"].includes(r), move: ["shop","area"].includes(r), del: ["sales","shop","area"].includes(r) });
 function usedTab(){ return uSafe(() => !!S.role && usedPerm(S.role).add && !!S.store && usedOn(S.store), false); }
 function tabsFor(role){ const t = ROLES[role].tabs; return usedTab() && !t.includes("add") ? t.concat(["add"]) : t; }
 const usedKeep = u => u.stage !== "done" || (u.reclean ? isToday(u.doneAt) : (u.doneAt || 0) > Date.now() - USED_KEEP);
-// Used cars that count toward numbers (reclean-for-lot cars never do)
-const usedReal = l => l.filter(u => !u.reclean);
+// Used cars that count toward used numbers (reclean-for-lot cars never do; retired loaners have their own)
+const usedReal = l => l.filter(u => !u.reclean && !u.loaner);
+const loanerReal = l => l.filter(isLoaner);
 const usedFor = id => U.list.filter(u => (id === "*" ? usedOn(u.store) : u.store === id) && usedKeep(u));
 const usedVeh = u => [u.year, u.make, u.model].filter(Boolean).join(" ") || "Used vehicle";
 const usedId = u => u.stock ? "#" + u.stock : (u.vin ? "VIN " + u.vin.slice(-8) : "");
@@ -1077,11 +1095,17 @@ function usedLog(u, a){ return (u.log || []).concat([{ t: Date.now(), by: S.me |
 /* --- data --- */
 async function usedLoadFlags(){
   try{
-    if (!db){ U.flagOk = true; return; }   // preview mode: switches live in memory
+    if (!db){ U.flagOk = true; U.lflagOk = true; return; }   // preview mode: switches live in memory
     const { data, error } = await db.from("feature_flags").select("key,enabled").like("key", "used:%");
     if (error) throw error;
     const f = {}; data.forEach(r => { f[r.key.slice(5)] = !!r.enabled; });
     U.flags = f; U.flagOk = true; U.everOk = true;
+    try{   // loaner switches on their own: a problem here never touches used cars
+      const { data: ld, error: le } = await db.from("feature_flags").select("key,enabled").like("key", "loaner:%");
+      if (le) throw le;
+      const lf = {}; ld.forEach(r => { lf[r.key.slice(7)] = !!r.enabled; });
+      U.lflags = lf; U.lflagOk = true;
+    }catch(e2){ if (!U.lflagOk) U.lflags = {}; }
   }catch(e){
     // Never loaded = off. A Wi-Fi blip after that keeps the last known switches so the TV doesn't flicker.
     if (!U.everOk){ U.flags = {}; U.flagOk = false; }
@@ -1199,7 +1223,7 @@ async function usedSaveDetailers(store, names){
   if (db){ const { error } = await db.from("used_units").upsert({ id: "detailers:" + store, store: USED_SET, data: { names }, updated_at: new Date().toISOString() }); if (error) throw error; }
   U.detailers[store] = names;
 }
-function usedSig(){ return JSON.stringify(U.detailers) + JSON.stringify(U.flags) + "|" + U.flagOk + "|" + U.loaded + "|" + U.list.map(u => u.id + ":" + (u.updatedAt || 0)).join(","); }
+function usedSig(){ return JSON.stringify(U.detailers) + JSON.stringify(U.flags) + JSON.stringify(U.lflags) + "|" + U.flagOk + "|" + U.loaded + "|" + U.list.map(u => u.id + ":" + (u.updatedAt || 0)).join(","); }
 function usedRedraw(){
   const on = usedOn("*"), sig = usedSig();
   // While OFF and unchanged, never redraw: the board behaves exactly as before.
@@ -1263,7 +1287,8 @@ function usedStrip(store){
       ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
       ["done", "Completed", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
     ];
-    const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + (c.nk ? " u-nokeys" : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
+    const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + (c.nk ? " u-nokeys" : "") + (isLoaner(u) ? " u-ln" : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
+      (isLoaner(u) ? '<span class="u-ln-tag">LOANER</span>' : "") +
       '<span class="u-stock">' + esc(usedId(u)) + '</span>' +
       '<span class="u-veh">' + esc(usedVeh(u)) + '</span>' +
       (u.detailer ? '<span class="u-who">' + esc(u.detailer) + '</span>' : "") +
@@ -1292,7 +1317,7 @@ function viewUsed(inline){
       const nx = USED_NEXT[u.stage];
       const act = (nx && p.move && S.canWrite) ? '<button class="btn primary" data-action="u-stage" data-id="' + esc(u.id) + '" data-to="' + nx.to + '">' + nx.label + '</button>' : "";
       const c = usedClock(u, now);
-      return '<div class="job-row u-' + (c.lvl === "bad" ? "bad" : c.lvl) + (c.nk ? " u-nokeys" : "") + '"><div class="bar"></div>' +
+      return '<div class="job-row u-' + (c.lvl === "bad" ? "bad" : c.lvl) + (c.nk ? " u-nokeys" : "") + (isLoaner(u) ? " u-ln" : "") + '"><div class="bar"></div>' +
         '<button class="job-main" data-action="u-open" data-id="' + esc(u.id) + '"><div class="job-title">' + esc(usedVeh(u)) + (u.color ? ' <span class="muted" style="font-weight:500">' + esc(u.color) + '</span>' : "") + '</div>' +
         '<div class="job-meta">' + (u.stock ? '<span>#<b>' + esc(u.stock) + '</b></span>' : "") + (u.vin ? '<span>VIN ' + esc(u.vin.slice(-8)) + '</span>' : "") +
         (S.store === "*" ? '<span>' + esc(storeName(u.store)) + '</span>' : "") +
@@ -1300,6 +1325,7 @@ function viewUsed(inline){
         '<span><b class="u-c-' + c.lvl + '">' + esc(c.txt) + '</b></span>' +
         '<span>' + (u.detailer ? 'Detailer <b>' + esc(u.detailer) + '</b>' : '<span class="muted">No detailer</span>') + '</span>' +
         '<span>Added by ' + esc(u.addedBy || "—") + '</span>' +
+        (isLoaner(u) ? '<span class="pill ln-pill">Retired loaner</span>' : "") +
         '<span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span></div></button>' +
         '<div class="job-act">' + act + '</div></div>';
     }).join("");
@@ -1318,10 +1344,12 @@ function viewUsed(inline){
 function usedTileLine(id){
   return uSafe(() => {
     if (!usedOn(id) || !U.loaded) return "";
-    const l = usedFor(id);
+    const all = usedFor(id), l = all.filter(u => !isLoaner(u));   // loaners get their own count below
     const now = Date.now(), over = usedReal(l).filter(u => u.stage !== "done" && usedClock(u, now).lvl !== "ok").length;
     return '<div class="tile-line">Used cars: <b>' + l.filter(u => u.stage === "detail").length + '</b> in detail, <b>' + l.filter(u => u.stage === "progress").length + '</b> in progress, <b>' + l.filter(u => u.stage === "done" && isToday(u.doneAt)).length + '</b> completed today' +
-      (over ? ', <span class="bad">' + over + ' over 24h</span>' : "") + '</div>';
+      (over ? ', <span class="bad">' + over + ' over 24h</span>' : "") +
+      uSafe(() => { const lo = loanerReal(all).filter(u => u.stage !== "done"), lov = lo.filter(u => usedClock(u, now).lvl !== "ok").length;
+        return lo.length ? ' · <b>' + lo.length + '</b> retired loaner' + (lo.length === 1 ? "" : "s") + (lov ? ' <span class="bad">(' + lov + ' over 24h)</span>' : "") : ""; }, "") + '</div>';
   }, "");
 }
 
@@ -1337,6 +1365,21 @@ function usedSwitchPanel(){
       return '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(s.name) + '</span>' +
         '<span style="width:44px;font-weight:700;color:' + (on ? "var(--ok)" : "var(--muted)") + '">' + (on ? "ON" : "OFF") + '</span>' +
         '<button class="btn' + (on ? "" : " primary") + '" style="width:110px" data-action="u-flag" data-id="' + esc(s.id) + '"' + dis + '>' + (on ? "Turn off" : "Turn on") + '</button></div>';
+    }).join("") + '</div></div>';
+  }, "");
+}
+
+function loanerSwitchPanel(){
+  return uSafe(() => {
+    if (S.role !== "area" || !U.flagOk || !stores().some(s => usedOn(s.id))) return "";
+    let h = '<div class="panel"><h3 style="font-size:22px">Retired loaners</h3><p class="muted">Adds a “Retired loaner” checkbox when adding a used car. Loaners show in orange on the shop TV, run the same 24h/48h timer and late emails, and get their own numbers on View store instead of counting as used cars. Off means that store’s board works exactly like today.</p>';
+    if (!U.lflagOk) return h + '<div class="warn-box">The loaner switches aren’t reachable right now. Loaners stay off until they are.</div></div>';
+    const dis = U.saving ? " disabled" : "";
+    return h + '<div class="set-list">' + stores().map(s => {
+      const on = U.lflags[s.id] === true, uon = usedOn(s.id);
+      return '<div class="set-item"><span style="flex:1;font-weight:600">' + esc(s.name) + (uon ? "" : ' <span class="muted" style="font-weight:500">· turn on used cars first</span>') + '</span>' +
+        '<span style="width:44px;font-weight:700;color:' + (on && uon ? "var(--ok)" : "var(--muted)") + '">' + (on && uon ? "ON" : "OFF") + '</span>' +
+        '<button class="btn' + (on ? "" : " primary") + '" style="width:110px" data-action="u-lflag" data-id="' + esc(s.id) + '"' + (uon || on ? dis : " disabled") + '>' + (on ? "Turn off" : "Turn on") + '</button></div>';
     }).join("") + '</div></div>';
   }, "");
 }
@@ -1400,7 +1443,7 @@ function usedModal(){
   const delSec = (p.del && w) ? '<div class="sec"><button class="btn danger" data-action="u-del" data-id="' + esc(u.id) + '">' + (U.modal.confirmDel ? "Tap again to remove for good" : "Remove from used cars") + '</button></div>' : "";
   root.innerHTML = wrap(esc(usedVeh(u)), esc(usedId(u)) + "  ·  " + esc(storeName(u.store)),
     '<div class="row" style="margin-top:6px"><span class="pill ' + USED_PILL[u.stage] + '">' + esc(USED_STAGES[u.stage]) + '</span>' + (u.color ? '<span class="muted">' + esc(u.color) + '</span>' : "") + '</div>' +
-    '<div class="sec">' + (u.reclean ? '<div class="rc-box" style="margin-bottom:10px">RECLEAN FOR LOT<div style="font-weight:500;opacity:.85">Touch-up only · no timer · not counted in any numbers</div></div>' : '<p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Completed in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>') +
+    '<div class="sec">' + (isLoaner(u) ? '<div class="ln-box" style="margin-bottom:10px">RETIRED LOANER</div>' : "") + (u.reclean ? '<div class="rc-box" style="margin-bottom:10px">RECLEAN FOR LOT<div style="font-weight:500;opacity:.85">Touch-up only · no timer · not counted in any numbers</div></div>' : '<p style="margin:0 0 10px;font-weight:700" class="u-c-' + clk.lvl + '">' + (u.stage === "done" ? "Completed in " + esc(fmtDur(clk.age)) : esc(clk.txt) + " · on the clock " + esc(fmtDur(clk.age))) + ' <span class="muted" style="font-weight:500">(24h expected, 48h max)</span></p>') +
       '<dl class="times">' + (u.vin ? '<div><dt>VIN</dt><dd>' + esc(u.vin) + '</dd></div>' : "") +
       '<div><dt>Detailer</dt><dd>' + esc(u.detailer || "Not assigned") + '</dd></div>' +
       '<div><dt>Added</dt><dd>' + esc(fmtTime(u.createdAt)) + '</dd></div><div><dt>Added by</dt><dd>' + esc(u.addedBy || "—") + '</dd></div>' +
@@ -1467,7 +1510,8 @@ function usedFields(u, detStore, det, scanTop){
 function usedRecleanField(u){
   const on = !!u.reclean, needPin = false;
   return '<div class="field"><label class="rc-pick"><input type="checkbox" name="reclean" value="1"' + (on ? " checked" : "") + '><span>Reclean for lot<br><span class="muted" style="font-weight:500;font-size:14px">Touch-up on an aged lot car · no timer · not counted</span></span></label>' +
-    (needPin ? '<input class="input' + " hidden" + '" name="rcpin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Manager PIN to mark reclean" style="margin-top:8px">' : "") + '</div>';
+    (needPin ? '<input class="input' + " hidden" + '" name="rcpin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Manager PIN to mark reclean" style="margin-top:8px">' : "") +
+    (u.loaner || loanerOn(u.store || S.store) ? '<label class="ln-pick"><input type="checkbox" name="loaner" value="1"' + (u.loaner ? " checked" : "") + '><span>Retired loaner<br><span class="muted" style="font-weight:500;font-size:14px">Same timer · 24h expected, 48h max · own numbers</span></span></label>' : "") + '</div>';
 }
 async function usedPinOk(v){
   v = String(v || "").trim(); if (!v) return false;
@@ -2034,6 +2078,19 @@ document.addEventListener("click", async e => {
       catch(err){ toast("That didn't save. Check your connection and try again.", true); }
       return;
     }
+    if (a === "u-lflag"){
+      if (S.role !== "area" || U.saving) return;
+      const id = t.dataset.id, next = U.lflags[id] !== true;
+      if (next && !usedOn(id)) return;
+      U.saving = true; t.disabled = true;
+      try{
+        if (db) await flagsSave([{ key: "loaner:" + id, enabled: next }]);
+        U.lflags[id] = next;
+        toast("Retired loaners " + (next ? "on" : "off") + " at " + storeName(id));
+      }catch(err){ console.warn("Loaners:", err); toast("Couldn't change the switch. Nothing was changed. Try again.", true); }
+      finally{ U.saving = false; U.sig = usedSig(); render(true); }
+      return;
+    }
     if (a === "u-flag"){
       if (S.role !== "area" || U.saving) return;
       const id = t.dataset.id, next = U.flags[id] !== true;
@@ -2087,10 +2144,13 @@ document.addEventListener("submit", async e => {
       const patch = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes") };
       if (vh.added) usedRememberModel(vh.make, vh.model);
       const changed = Object.keys(patch).filter(k => String(u[k] || "") !== patch[k]);
-      const rcChg = rc !== !!u.reclean;
-      if (!changed.length && !rcChg){ U.modal = { kind: "view", id: u.id }; usedModal(); return; }
+      const rcChg = rc !== !!u.reclean, ln = !!fd.get("loaner"), lnChg = ln !== !!u.loaner;
+      if (rc && ln){ err.innerHTML = '<div class="err-msg" role="alert">Pick reclean for lot or retired loaner, not both.</div>'; return; }
+      if (!changed.length && !rcChg && !lnChg){ U.modal = { kind: "view", id: u.id }; usedModal(); return; }
       if (rcChg) patch.reclean = rc;
-      patch.log = usedLog(u, rcChg ? (rc ? "Marked reclean for lot" : "Changed from reclean to used car") + (changed.length ? ", details edited" : "") : "Details edited");
+      if (lnChg) patch.loaner = ln;
+      const what = [rcChg ? (rc ? "Marked reclean for lot" : "Changed from reclean to used car") : "", lnChg ? (ln ? "Marked retired loaner" : "Changed from retired loaner to used car") : ""].filter(Boolean);
+      patch.log = usedLog(u, what.length ? what.join(", ") + (changed.length ? ", details edited" : "") : "Details edited");
       const btn = f.querySelector("#uSubmit"); btn.disabled = true; btn.textContent = "Saving…"; U.busy = true;
       try{ await usedApi.update(u, patch); toast("Changes saved"); U.modal = { kind: "view", id: u.id }; usedModal(); usedRerender(); }
       catch(e2){ console.warn("Used cars:", e2); btn.disabled = false; btn.textContent = "Save"; toast("That didn't save. Check your connection and try again.", true); }
@@ -2120,6 +2180,9 @@ document.addEventListener("submit", async e => {
     const rc = !!fd.get("reclean");
     if (year && !/^\d{4}$/.test(year)){ errs.push("Year should be 4 digits, like 2021."); f.year.classList.add("err"); }
     if (!store || !usedOn(store)){ errs.push("Used cars aren’t turned on for this store."); }
+    const ln = !!fd.get("loaner");
+    if (ln && rc) errs.push("Pick reclean for lot or retired loaner, not both.");
+    else if (ln && store && !loanerOn(store)) errs.push("Retired loaners aren’t turned on for " + storeName(store) + ".");
     if (errs.length){ err.innerHTML = '<div class="err-msg" role="alert">' + errs.map(esc).join("<br>") + '</div>'; f.querySelector(".err")?.focus(); return; }
     const dupe = U.list.find(u => u.store === store && u.stage !== "done" && String(u.stock).toUpperCase() === stock);
     if (dupe && !ctx.dupeOk){
@@ -2133,8 +2196,9 @@ document.addEventListener("submit", async e => {
     if (vh.added) usedRememberModel(vh.make, vh.model);
     const d = { stock, vin, year, make: vh.make, model: vh.model, color: g("color"), notes: g("notes"), detailer: null,
       stage: "detail", createdAt: now, updatedAt: now, stageAt: now, doneAt: null, addedBy: by, addedRole: S.role,
-      log: [{ t: now, by, a: rc ? "Added as reclean for lot" : "Added to used cars" }] };
+      log: [{ t: now, by, a: rc ? "Added as reclean for lot" : ln ? "Added as retired loaner" : "Added to used cars" }] };
     if (rc) d.reclean = true;
+    if (ln) d.loaner = true;
     if (usedPerm(S.role).move){ const dp = usedDetPatch([g("detailer"), g("detailer2")]); d.detailer = dp.detailer; if (dp.detailers) d.detailers = dp.detailers; }
     const again = !!(e.submitter && e.submitter.dataset.next);
     f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = true);
@@ -2142,7 +2206,7 @@ document.addEventListener("submit", async e => {
       await usedApi.add(store, d);
       if (f.dataset.inline){ U.inl = { last: stock, detailer: usedDets(d), store }; usedInlineRefresh(true); usedRerender(); U.busy = false; return; }
       if (again){ U.modal = { kind: "add", last: stock, detailer: usedDets(d) }; usedModal(); setTimeout(() => usedRoot().querySelector(".sheet")?.scrollTo(0, 0), 0); }
-      else { usedClose(); toast(rc ? "Added as reclean for lot. It’s on the shop board in purple." : "Added. It’s on the shop board under In detail."); }
+      else { usedClose(); toast(rc ? "Added as reclean for lot. It’s on the shop board in purple." : ln ? "Added as retired loaner. It’s on the shop board in orange." : "Added. It’s on the shop board under In detail."); }
       usedRerender();
     }
     catch(e2){ console.warn("Used cars:", e2); f.querySelectorAll('button[type="submit"]').forEach(b => b.disabled = false); btn.textContent = f.dataset.inline ? "Send to Teph Seal" : "Add"; toast("That didn't save. Check your connection and try again.", true); }
@@ -2549,11 +2613,11 @@ function nextStep(j){
 }
 
 /* --- View store: a read-only picture of the store for the dealership --- */
-const VS_SECTIONS = [["ticker","Ticker"],["kpis","Scoreboard"],["now","Live board"],["today","Delivered today"],["week","Last 7 days"],["month","Last 30 days"],["ontime","On-time & speed (30/60/90 days)"],["products","Products"],["used","Used cars"],["rank","Salesperson ranking"]];
+const VS_SECTIONS = [["ticker","Ticker"],["kpis","Scoreboard"],["now","Live board"],["today","Delivered today"],["week","Last 7 days"],["month","Last 30 days"],["ontime","On-time & speed (30/60/90 days)"],["products","Products"],["used","Used cars"],["loaners","Retired loaners"],["rank","Salesperson ranking"]];
 // Layout is set per store by the area manager (feature_flags 'view:<storeId>:<section>'). Everyone else just sees it.
 const VSF = { flags: {}, sig: "" };
 function vsPrefs(store){
-  const d = { ticker:true, kpis:true, now:true, today:true, week:true, month:true, ontime:true, products:true, used:true, rank:false };
+  const d = { ticker:true, kpis:true, now:true, today:true, week:true, month:true, ontime:true, products:true, used:true, loaners:true, rank:false };
   store = store || S.store;
   if (store && store !== "*") Object.assign(d, VSF.flags[store] || {});
   return d;
@@ -2698,6 +2762,11 @@ function viewStore(){
   const finToday = all.filter(j => j.readyAt && j.dueAt && j.readyAt >= T0);
   const useOn = !!v.used && uSafe(() => (multi ? stores().some(x => usedOn(x.id)) : usedOn(S.store)) && U.loaded, false);
   const ul = useOn ? uSafe(() => usedReal(usedFor(S.store)), []) : [], uo = ul.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const ll = useOn && v.loaners !== false ? uSafe(() => loanerReal(usedFor(S.store)), []) : [];
+  const lnOn = ll.length > 0 || (useOn && v.loaners !== false && uSafe(() => multi ? loanerOn("*") : loanerOn(S.store), false));
+  const lo = ll.filter(u => u.stage !== "done").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)), lLate = lo.filter(u => usedClock(u, now).lvl === "bad");
+  const LW = [30, 60, 90].map(d => { const l = ll.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - d * DAY).sort((a, b) => b.doneAt - a.doneAt);
+    return { d, l, avg: l.length ? l.reduce((a, u) => a + usedTotal(u), 0) / l.length : null, in24: l.length ? Math.round(l.filter(u => usedTotal(u) <= USED_GOAL).length / l.length * 100) : null, over48: l.filter(u => usedTotal(u) > USED_MAX) }; });
   const uDone30 = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - 30 * DAY).sort((a, b) => b.doneAt - a.doneAt), uLate = uo.filter(u => usedClock(u, now).lvl === "bad");
   const uAvg = uDone30.length ? uDone30.reduce((a, u) => a + usedTotal(u), 0) / uDone30.length : null;
   const UW = [30, 60, 90].map(d => { const l = ul.filter(u => u.stage === "done" && u.doneAt && u.doneAt >= now - d * DAY).sort((a, b) => b.doneAt - a.doneAt);
@@ -2724,8 +2793,9 @@ function viewStore(){
     all.filter(j => j.createdAt >= T0).forEach(j => ev.push([j.createdAt, "nw", "SOLD", "#" + j.stock + " " + vehicle(j) + (j.salesperson ? " · " + j.salesperson : "")]));
     if (v.now) late.forEach(j => ev.push([now, "dn", "LATE", "#" + j.stock + " " + vehicle(j) + " " + dueText(j, now)]));
     if (useOn){ uLate.forEach(u => ev.push([now, "dn", "USED 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ul.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "USED COMPLETED", "#" + (u.stock || "") + " " + usedVeh(u)])); }
+    if (lnOn){ lLate.forEach(u => ev.push([now, "dn", "LOANER 48H+", "#" + (u.stock || "") + " " + usedVeh(u)])); ll.filter(u => u.stage === "done" && (u.doneAt || 0) >= T0).forEach(u => ev.push([u.doneAt, "up", "LOANER COMPLETED", "#" + (u.stock || "") + " " + usedVeh(u)])); }
     ev.sort((a, b) => b[0] - a[0]);
-    const items = (ev.length ? ev.slice(0, 24) : [[now, "", "TODAY", "Quiet so far. Sold units will show up here."]]).map(e => '<span class="tk ' + e[1] + '"><b>' + e[2] + '</b> ' + esc(e[3]) + (e[2] === "LATE" || e[2] === "USED 48H+" ? "" : ' <em>' + esc(tm(e[0])) + '</em>') + '</span>').join("");
+    const items = (ev.length ? ev.slice(0, 24) : [[now, "", "TODAY", "Quiet so far. Sold units will show up here."]]).map(e => '<span class="tk ' + e[1] + '"><b>' + e[2] + '</b> ' + esc(e[3]) + (e[2] === "LATE" || e[2] === "USED 48H+" || e[2] === "LOANER 48H+" ? "" : ' <em>' + esc(tm(e[0])) + '</em>') + '</span>').join("");
     const sec = Math.max(30, ev.length * 6);
     h += '<div class="tm-ticker"><div class="tk-run" style="animation-duration:' + sec + 's;animation-delay:-' + ((now / 1000) % sec).toFixed(1) + 's">' + items + items + '</div></div>';
   }
@@ -2800,7 +2870,21 @@ function viewStore(){
       '<tr><td><span class="tm-pl p' + (i + 1) + '">' + (i + 1) + '</span></td><td><b>' + esc(n) + '</b></td><td class="tm-meter"><i style="width:' + Math.round(r.m.length / mx * 100) + '%"></i></td>' + c("r" + i + "d", n + " · today", r.d) + c("r" + i + "w", n + " · last 7 days", r.w) + c("r" + i + "m", n + " · last 30 days", r.m) + c("r" + i + "q", n + " · last 90 days", r.q) + '<td class="r mono">' + (r.m.length ? (r.p / r.m.length).toFixed(1) : "—") + '</td></tr>').join("") + '</tbody></table>'
       : '<div class="tm-empty">No deliveries in the last 30 days.</div>');
   }
+  let tLoan = "";
+  if (lnOn) tLoan = uSafe(() => {
+    const L = LW[0];
+    let x = tile("Retired loaners in detail", '<span class="tm-sub">' + num("t-lo", "Retired loaners in detail", lo, lo.length + " in", "used") + ' · ' + num("t-ld", "Retired loaners completed, last 30 days", L.l, L.l.length + " completed (30d)", "used") + ' · avg ' + esc(dur(L.avg)) + '</span>',
+      lo.length ? '<table class="tm-t tm-used-t"><thead><tr><th>Stock</th><th>VIN</th><th>Vehicle</th><th>Stage</th><th>Detailer</th><th class="r">Time in detail</th></tr></thead><tbody>' + lo.map(u => { const c = usedClock(u, now), l = c.lvl === "ok" ? "ok" : c.lvl === "warn" ? "warn" : "bad";
+        return '<tr class="u-' + l + " u-ln" + (c.nk ? " u-nokeys" : "") + ' tm-click" ' + vsReg("l-" + u.id, "#" + (u.stock || "") + " " + usedVeh(u), [u], "used") + '><td class="mono">' + esc(u.stock || "—") + '</td><td class="mono dim">' + esc(u.vin ? String(u.vin).slice(-8) : "—") + '</td><td>' + esc(usedVeh(u)) + (u.color ? ' <span class="dim">' + esc(u.color) + '</span>' : "") + (multi ? ' <span class="dim">· ' + esc(storeName(u.store)) + '</span>' : "") + '</td><td><span class="tm-st ' + (u.stage === "detail" ? "queued" : "working") + '">' + (u.stage === "detail" ? "IN DETAIL" : "IN PROG") + '</span></td><td>' + esc(u.detailer || "—") + '</td><td class="r mono c-' + l + '"><b>' + esc(fmtDur(c.age)) + '</b> <span class="dim">' + esc(c.short) + '</span></td></tr>'; }).join("") + '</tbody></table>'
+        : '<div class="tm-empty">No retired loaners in detail right now.</div>');
+    return x.replace('</div></section>', '<table class="tm-t tm-avg"><thead><tr><th>Finished retired loaners</th><th class="r">30 days</th><th class="r">60 days</th><th class="r">90 days</th></tr></thead><tbody>' +
+      '<tr><td>Loaners completed</td>' + LW.map(w => w.l.length ? '<td class="r mono"><span class="tm-n" ' + vsReg("ld" + w.d, "Retired loaners completed, last " + w.d + " days", w.l, "used") + '>' + w.l.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr>' +
+      '<tr><td>Avg time in detail</td>' + LW.map(w => '<td class="r mono">' + esc(dur(w.avg)) + '</td>').join("") + '</tr>' +
+      '<tr><td>Completed within 24h</td>' + LW.map(w => '<td class="r mono">' + pct(w.in24) + '</td>').join("") + '</tr>' +
+      '<tr><td>Over 48 hours</td>' + LW.map(w => w.over48.length ? '<td class="r mono c-bad"><span class="tm-n" ' + vsReg("lo" + w.d, "Retired loaners over 48h, last " + w.d + " days", w.over48, "used") + '>' + w.over48.length + '</span></td>' : '<td class="r mono dim">0</td>').join("") + '</tr></tbody></table></div></section>');
+  }, "");
   h += row("rC", [tUsed, tRank]);
+  h += row("rL", [tLoan]);
   if (area) h += rvSafe(() => vsReviewsTile(now, multi));
   return h + '</div>';
 }
@@ -3195,7 +3279,7 @@ function viewSettings(){
       products().map(p => '<span class="pill" style="font-size:15px;padding:6px 6px 6px 12px">' + esc(p) + ' <button class="x" style="width:28px;height:28px;font-size:16px" data-action="del-prod" data-p="' + esc(p) + '" aria-label="Remove ' + esc(p) + '">×</button></span>').join("") +
       '</div><form class="set-item" data-form="add-prod"><input class="input" name="label" placeholder="Add a product" required><button class="btn primary" type="submit">Add</button></form></div>' +
     '<div class="panel"><h3 style="font-size:22px">Setting up a shop TV</h3><p class="muted" style="margin-bottom:0">On the TV’s browser or a cheap stick PC, open this board, choose <b>Detail shop</b>, enter that store’s code, then tap <b>TV mode</b> and <b>Turn on chime</b>. It remembers everything after that.</p></div>' +
-    reviewsSwitchPanel() + usedSwitchPanel() + dpSwitchPanel() + alertsPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
+    reviewsSwitchPanel() + usedSwitchPanel() + loanerSwitchPanel() + dpSwitchPanel() + alertsPanel() + vsSetupPanel() + '<div class="panel"><h3 style="font-size:22px">Housekeeping</h3><p class="muted">Delivered units older than 90 days can be cleared to keep the board fast. Everything from the last 90 days stays for the View store averages.</p><button class="btn" data-action="cleanup">Clear old delivered units</button></div></div>';
 }
 
 /* --- TV remote: the Back button closes pop-ups ---
