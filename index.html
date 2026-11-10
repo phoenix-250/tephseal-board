@@ -3491,7 +3491,8 @@ document.addEventListener("click", async e => {
     case "dive": S.store = t.dataset.store; LS.set("store", S.store); S.view = t.dataset.to; render(true); window.scrollTo(0,0); break;
     case "sound":
       S.sound = !S.sound;
-      if (S.sound){ try{ audio = audio || new (window.AudioContext || window.webkitAudioContext)(); await audio.resume(); }catch(err){} chime(); }
+      if (S.sound){ try{ if (audio && audio.state !== "running"){ try{ audio.close(); }catch(e2){} audio = null; }
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)(); await audio.resume(); }catch(err){} chime(); }
       LS.set("sound", S.sound); render(true); break;
     case "tv":
       S.tv = !S.tv;
@@ -3728,16 +3729,18 @@ if (S.tvAgain){
 // Chime remembers its setting, so a TV reload (3 a.m. update, stuck-board reload, manual refresh) doesn't turn it off.
 // Browsers may hold sound until the first remote press or tap; that press quietly unlocks it.
 S.sound = LS.get("sound", false) === true;
-if (S.sound){
-  try{ audio = new (window.AudioContext || window.webkitAudioContext)(); const p = audio.resume(); if (p && p.catch) p.catch(() => {}); }catch(e){ audio = null; }
+if (S.sound){   // sound is only started inside a press (remote button or tap) — never at page load, which some TV browsers mute for good
   const evs = ["keydown", "click", "touchstart", "pointerdown"];
-  const unlock = () => {
-    try{
-      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
-      if (audio.state !== "running"){ const p = audio.resume(); if (p && p.then) p.then(done, () => {}); } else done();
-    }catch(e){}
-  };
   const done = () => evs.forEach(ev => removeEventListener(ev, unlock, true));
+  function unlock(){
+    try{
+      if (!S.sound){ done(); return; }
+      if (audio && audio.state === "running"){ done(); return; }
+      if (audio){ try{ audio.close(); }catch(e){} audio = null; }
+      audio = new (window.AudioContext || window.webkitAudioContext)();
+      const p = audio.resume(); if (p && p.then) p.then(() => { if (audio && audio.state === "running") done(); }, () => {});
+    }catch(e){}
+  }
   evs.forEach(ev => addEventListener(ev, unlock, true));
 }
 
