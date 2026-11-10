@@ -2926,7 +2926,7 @@ function viewBoard(){
     (S.online === false ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">Offline, reconnecting…</span>' : "") +
     '<span class="spacer"></span>' +
     (!S.tv && S.canWrite && S.store !== "*" && uSafe(() => usedOn(S.store) && usedPerm(S.role).move, false) ? '<button class="btn" data-action="u-team">Detailers (' + uSafe(() => usedDetailers(S.store).length, 0) + ')</button>' : "") +
-    '<button class="btn" data-action="sound">' + (S.sound ? "Chime on" : "Turn on chime") + '</button>' +
+    '<button class="btn" data-action="sound">' + (S.sound ? "🔔 Chime: ON" : "🔕 Chime: OFF · tap to turn on") + '</button>' +
     '<button class="btn" data-action="tv">' + (S.tv ? "Exit TV mode" : "TV mode") + '</button></div>' +
     '<div class="board-cols">' + cols.map(([k, l]) => {
       const list = sortJobs(all.filter(j => j.status === k));
