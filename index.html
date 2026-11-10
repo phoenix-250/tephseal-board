@@ -1282,10 +1282,11 @@ function usedStrip(store){
     if (!usedOn(store) || !U.loaded) return "";
     const now = Date.now(), all = usedFor(store);
     const capFor = k => S.tv || (U.more && U.more[k]) ? 999 : 6;   // TV shows them all: fitTV() shrinks to fit, then pages on its own; phones tap "+N more" to open the rest
+    const kind = u => u.reclean ? 2 : isLoaner(u) ? 1 : 0;   // regular used cars first, then retired loaners, then reclean for lot at the bottom
     const cols = [
-      ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
-      ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))],
-      ["done", "Completed", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))]
+      ["detail", "In detail", all.filter(u => u.stage === "detail").sort((a, b) => kind(a) - kind(b) || (a.createdAt || 0) - (b.createdAt || 0))],
+      ["progress", "In progress", all.filter(u => u.stage === "progress").sort((a, b) => kind(a) - kind(b) || (a.createdAt || 0) - (b.createdAt || 0))],
+      ["done", "Completed", all.filter(u => u.stage === "done" && isToday(u.doneAt)).sort((a, b) => kind(a) - kind(b) || (b.doneAt || 0) - (a.doneAt || 0))]
     ];
     const item = (u, k) => { const c = usedClock(u, now); return '<button class="u-item u-' + c.lvl + (c.nk ? " u-nokeys" : "") + (isLoaner(u) ? " u-ln" : "") + '" data-action="u-open" data-id="' + esc(u.id) + '">' +
       (isLoaner(u) ? '<span class="u-ln-tag">LOANER</span>' : "") +
