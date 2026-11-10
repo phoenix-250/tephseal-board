@@ -2222,6 +2222,7 @@ let audio = null;
 function chime(){
   if (!S.sound || !audio) return;
   try{
+    if (audio.state === "suspended"){ const p = audio.resume(); if (p && p.catch) p.catch(() => {}); }
     const t = audio.currentTime;
     [[880,0],[1175,.18],[1568,.36]].forEach(([f, d]) => {
       const o = audio.createOscillator(), g = audio.createGain();
@@ -3724,7 +3725,21 @@ if (S.tvAgain){
   addEventListener("keydown", fs, true); addEventListener("click", fs, true);
   try{ document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); }catch(e){}
 }
-S.sound = false; // browsers need a tap each visit to allow sound
+// Chime remembers its setting, so a TV reload (3 a.m. update, stuck-board reload, manual refresh) doesn't turn it off.
+// Browsers may hold sound until the first remote press or tap; that press quietly unlocks it.
+S.sound = LS.get("sound", false) === true;
+if (S.sound){
+  try{ audio = new (window.AudioContext || window.webkitAudioContext)(); const p = audio.resume(); if (p && p.catch) p.catch(() => {}); }catch(e){ audio = null; }
+  const evs = ["keydown", "click", "touchstart", "pointerdown"];
+  const unlock = () => {
+    try{
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state !== "running"){ const p = audio.resume(); if (p && p.then) p.then(done, () => {}); } else done();
+    }catch(e){}
+  };
+  const done = () => evs.forEach(ev => removeEventListener(ev, unlock, true));
+  evs.forEach(ev => addEventListener(ev, unlock, true));
+}
 
 /* --- TV remote: arrow buttons jump to the nearest button in that direction (not around the whole screen) --- */
 (function(){
