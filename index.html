@@ -60,6 +60,8 @@ body.tv :focus{ outline:6px solid #ffd400 !important; outline-offset:3px; box-sh
 main{ max-width:1400px; margin:0 auto; padding:20px 16px 60px; }
 .tv-stale{ display:none; position:fixed; left:50%; top:14px; transform:translateX(-50%); z-index:80; padding:12px 24px; border-radius:12px; background:var(--bad); color:#fff; font-size:clamp(18px,2.4vh,30px); font-weight:700; box-shadow:0 6px 24px rgba(0,0,0,.35); white-space:nowrap; }
 body.tv .tv-stale.on{ display:block; }
+.sound-off{ display:none; position:fixed; right:14px; bottom:14px; z-index:80; padding:12px 22px; border-radius:12px; background:#f5a623; color:#1a1200; font-size:clamp(18px,2.4vh,30px); font-weight:700; box-shadow:0 6px 24px rgba(0,0,0,.35); white-space:nowrap; }
+.sound-off.on{ display:block; }
 .banner{ max-width:1400px; margin:12px auto 0; padding:10px 16px; border-radius:10px; background:var(--chip); color:var(--muted); font-size:14px; }
 
 /* Generic */
@@ -2218,19 +2220,54 @@ document.addEventListener("keydown", e => { if (e.key !== "Escape") return; if (
 /* ================= end used cars ================= */
 
 /* ---------- sound ---------- */
-let audio = null;
-function chime(){
-  if (!S.sound || !audio) return;
+// The chime has to stay ready all day. TVs pause sound on their own (screensaver, sleep, input change, reload),
+// so it re-arms itself after any of those, and if the TV is still holding sound the board says so on screen
+// (orange box) instead of going quiet without anyone knowing. Sound is only ever first started by a press or tap.
+let audio = null, audioKeep = null;
+const AC = window.AudioContext || window.webkitAudioContext;
+function audioOk(){ return !!(audio && audio.state === "running"); }
+function pressedBefore(){ try{ return !!(navigator.userActivation && navigator.userActivation.hasBeenActive); }catch(e){ return false; } }
+function audioKeepAlive(){   // inaudible tone keeps the TV's speaker/soundbar awake, so the chime's first note isn't cut off
+  try{ if (!audioOk() || audioKeep) return;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = 40; g.gain.value = 0.00001; o.connect(g).connect(audio.destination); o.start(); audioKeep = o;
+  }catch(e){}
+}
+function audioStart(fresh){   // call from a press/tap (or once the page has had one)
+  if (!S.sound || !AC) return;
   try{
-    if (audio.state === "suspended"){ const p = audio.resume(); if (p && p.catch) p.catch(() => {}); }
-    const t = audio.currentTime;
+    if (audio && (fresh || audio.state === "closed")){ audioClose(); audio = null; }
+    if (!audio){ audio = new AC(); audioKeep = null; audio.onstatechange = () => { if (!audioOk()) audioKeep = null; else audioKeepAlive(); soundBadge(); }; }
+    if (audio.state !== "running"){ const p = audio.resume(); if (p && p.then) p.then(() => { audioKeepAlive(); soundBadge(); }, () => {}); }
+    else audioKeepAlive();
+  }catch(e){}
+  soundBadge();
+}
+function audioClose(){ try{ if (audio && audio.state !== "closed"){ const p = audio.close(); if (p && p.catch) p.catch(() => {}); } }catch(e){} }
+function audioStop(){ audioClose(); audio = null; audioKeep = null; soundBadge(); }
+function soundBadge(){
+  try{
+    let el = document.getElementById("soundOff");
+    if (!el){ el = document.createElement("div"); el.id = "soundOff"; el.className = "sound-off"; el.setAttribute("role", "status");
+      el.textContent = "🔇 Chime paused — press any arrow on the remote"; document.body.appendChild(el); }
+    const show = S.sound && !!AC && !audioOk() && (S.tv || S.role === "shop" || S.view === "board");
+    el.classList.toggle("on", !!show);
+  }catch(e){}
+}
+function chime(){
+  if (!S.sound || !audio) { soundBadge(); return; }
+  const play = () => { try{
+    const t = audio.currentTime + 0.05;
     [[880,0],[1175,.18],[1568,.36]].forEach(([f, d]) => {
       const o = audio.createOscillator(), g = audio.createGain();
       o.type = "sine"; o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.35, t + d + .02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + .5);
       o.connect(g).connect(audio.destination); o.start(t + d); o.stop(t + d + .55);
     });
-  }catch(e){}
+  }catch(e){} };
+  if (audioOk()) return play();
+  try{ const p = audio.resume(); if (p && p.then) p.then(() => { if (audioOk()) play(); soundBadge(); }, () => soundBadge()); }catch(e){}   // paused: wake it, then play
+  soundBadge();
 }
 
 /* ---------- toasts ---------- */
@@ -2926,7 +2963,7 @@ function viewBoard(){
     (S.online === false ? '<span class="flag rush" style="font-size:18px;padding:4px 12px">Offline, reconnecting…</span>' : "") +
     '<span class="spacer"></span>' +
     (!S.tv && S.canWrite && S.store !== "*" && uSafe(() => usedOn(S.store) && usedPerm(S.role).move, false) ? '<button class="btn" data-action="u-team">Detailers (' + uSafe(() => usedDetailers(S.store).length, 0) + ')</button>' : "") +
-    '<button class="btn" data-action="sound">' + (S.sound ? "🔔 Chime: ON" : "🔕 Chime: OFF · tap to turn on") + '</button>' +
+    '<button class="btn" data-action="sound">' + (S.sound ? (audioOk() ? "🔔 Chime: ON" : "🔇 Chime: paused · tap to start") : "🔕 Chime: OFF · tap to turn on") + '</button>' +
     '<button class="btn" data-action="tv">' + (S.tv ? "Exit TV mode" : "TV mode") + '</button></div>' +
     '<div class="board-cols">' + cols.map(([k, l]) => {
       const list = sortJobs(all.filter(j => j.status === k));
@@ -3490,9 +3527,9 @@ document.addEventListener("click", async e => {
     case "au-side": { S.addSide = t.dataset.s; const au = document.querySelector(".au"); if (au){ au.dataset.side = S.addSide; au.querySelectorAll('[data-action="au-side"]').forEach(b => b.setAttribute("aria-pressed", String(b === t))); } window.scrollTo(0, 0); break; }
     case "dive": S.store = t.dataset.store; LS.set("store", S.store); S.view = t.dataset.to; render(true); window.scrollTo(0,0); break;
     case "sound":
+      if (S.sound && !audioOk()){ audioStart(true); chime(); render(true); break; }   // ON but paused: this press restarts it (doesn't turn it off)
       S.sound = !S.sound;
-      if (S.sound){ try{ if (audio && audio.state !== "running"){ try{ audio.close(); }catch(e2){} audio = null; }
-        audio = audio || new (window.AudioContext || window.webkitAudioContext)(); await audio.resume(); }catch(err){} chime(); }
+      if (S.sound){ audioStart(true); chime(); } else audioStop();
       LS.set("sound", S.sound); render(true); break;
     case "tv":
       S.tv = !S.tv;
@@ -3729,20 +3766,22 @@ if (S.tvAgain){
 // Chime remembers its setting, so a TV reload (3 a.m. update, stuck-board reload, manual refresh) doesn't turn it off.
 // Browsers may hold sound until the first remote press or tap; that press quietly unlocks it.
 S.sound = LS.get("sound", false) === true;
-if (S.sound){   // sound is only started inside a press (remote button or tap) — never at page load, which some TV browsers mute for good
-  const evs = ["keydown", "click", "touchstart", "pointerdown"];
-  const done = () => evs.forEach(ev => removeEventListener(ev, unlock, true));
-  function unlock(){
-    try{
-      if (!S.sound){ done(); return; }
-      if (audio && audio.state === "running"){ done(); return; }
-      if (audio){ try{ audio.close(); }catch(e){} audio = null; }
-      audio = new (window.AudioContext || window.webkitAudioContext)();
-      const p = audio.resume(); if (p && p.then) p.then(() => { if (audio && audio.state === "running") done(); }, () => {});
-    }catch(e){}
-  }
-  evs.forEach(ev => addEventListener(ev, unlock, true));
+// Every press or tap re-arms the chime if the TV paused it (listeners stay on all day, not just the first press).
+["keydown", "keyup", "click", "touchend", "pointerdown", "mousedown"].forEach(ev => addEventListener(ev, () => { if (S.sound && !audioOk()) audioStart(); }, true));
+// Watchdog: every 5 seconds, wake sound the TV paused on its own (screensaver, sleep, input switch). No press needed once there's been one.
+function soundWatch(){
+  try{
+    if (S.sound && AC){
+      if (!audio || audio.state === "closed"){ if (pressedBefore()) audioStart(true); }
+      else if (audio.state !== "running"){ const p = audio.resume(); if (p && p.catch) p.catch(() => {}); }
+    }
+  }catch(e){}
+  soundBadge();
 }
+setInterval(soundWatch, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) soundWatch(); });
+addEventListener("pageshow", soundWatch); addEventListener("focus", soundWatch);
+setTimeout(soundBadge, 1500);
 
 /* --- TV remote: arrow buttons jump to the nearest button in that direction (not around the whole screen) --- */
 (function(){
