@@ -2354,14 +2354,15 @@ function renderMain(){
 }
 /* TV can't be scrolled or tapped, so every car stays on screen:
    1) shrink the whole area evenly until the fullest column fits (down to a readable minimum),
-   2) if a column still doesn't fit, it flips through pages by itself every few seconds. */
+   2) a column that still doesn't fit shrinks on its own, then lays its cars 2 across, so every car shows at once,
+   3) only if it STILL doesn't fit (very rare) does it flip through pages every few seconds. */
 const TV_PAGE_MS = 8000;
 function fitArea(wrap, avail, minZ){
   if (!wrap || avail < 40) return;
   const cols = [...wrap.children];
   const list = c => c.querySelector(".col, .u-list");
   wrap.style.transform = ""; wrap.style.width = ""; wrap.style.transformOrigin = "0 0";
-  cols.forEach(c => { c.style.position = "relative"; const l = list(c); if (l){ l.style.height = ""; l.style.overflow = ""; l.style.position = "relative"; l.scrollTop = 0; } const p = c.querySelector(".tv-page"); if (p) p.remove(); });
+  cols.forEach(c => { c.style.position = "relative"; const l = list(c); if (l){ l.style.height = ""; l.style.overflow = ""; l.style.position = "relative"; l.scrollTop = 0; l.style.transform = ""; l.style.width = ""; l.style.gridTemplateColumns = ""; } const p = c.querySelector(".tv-page"); if (p) p.remove(); });
   const need = () => Math.max(...cols.map(c => c.offsetHeight));
   let z = 1;
   for (z = 1; z > minZ; z = Math.round((z - 0.04) * 100) / 100){
@@ -2374,6 +2375,7 @@ function fitArea(wrap, avail, minZ){
     const l = list(c); if (!l || c.offsetHeight <= room) return;
     const vis = room - l.offsetTop;   // l is inside c; c's top is the column top
     if (vis < 40) return;
+    if (fitList(l, vis)) return;   // whole column fits on screen: no pages
     // page breaks fall between cards, never through one
     const starts = [0], ends = []; let start = 0, end = 0;
     [...l.children].forEach(el => { const t = el.offsetTop, b = t + el.offsetHeight; if (b - start > vis && t > start){ ends.push(end); start = t; starts.push(t); } end = b; });
@@ -2384,6 +2386,23 @@ function fitArea(wrap, avail, minZ){
     const head = c.querySelector(".col-head, .u-head");
     if (head){ const tag = document.createElement("span"); tag.className = "tv-page"; tag.textContent = "Page " + (pg + 1) + " of " + starts.length; head.querySelector("h3").after(tag); }
   });
+}
+// Shrink one column's list so all its cars show at once: 1 across first, then 2 across. Returns false (list reset) if it can't fit readably.
+function fitList(l, vis){
+  try{
+    if (l.offsetHeight <= vis) return true;   // already fits at full size (column only looked tall next to a fuller one)
+    l.style.transformOrigin = "0 0";
+    const tries = [["", 0.6], ["repeat(2,minmax(0,1fr))", 0.5]];
+    for (const [gc, min] of tries){
+      l.style.gridTemplateColumns = gc;
+      for (let s = 0.96; s >= min - 0.001; s = Math.round((s - 0.04) * 100) / 100){
+        l.style.width = (100 / s) + "%"; l.style.transform = "scale(" + s + ")";
+        if (l.offsetHeight * s <= vis) return true;
+      }
+    }
+  }catch(e){ console.warn("TV list fit:", e); }
+  l.style.transform = ""; l.style.width = ""; l.style.gridTemplateColumns = "";
+  return false;
 }
 function fitTV(){
   try{
